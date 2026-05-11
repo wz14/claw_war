@@ -125,23 +125,25 @@ async def on_inbound(
     """长轮询收到一条用户消息时的回调。
 
     流程：
-    1. 如果发送者还没有龙虾，先发一段固定欢迎语（这部分让模板写，不交给 AI）
-    2. 把消息交给 ai_handler 处理。AI 会自己决定调哪个 tool。
+    1. 确保该玩家有一只龙虾（没就现造）
+    2. 如果 bot session 还没发过欢迎语（扫码确认时主动发可能失败），
+       这次入站就把欢迎语补发一次，介绍清楚斗兽场玩法
+    3. 把消息交给 ai_handler 处理。AI 会自己决定调哪个 tool。
        tool 内部会读/改 Lobster，对应的"游戏判定结果"原样返回给 AI，
        AI 再戏剧化包装。
-    3. 持久化。
+    4. 持久化。
     """
     if STATE.ai is None:
         return "（AI 主持人还没起来，请先配置 OPENAI_API_KEY 再重试。）"
 
     lobster = STATE.lobsters.get(sender)
-    is_new = lobster is None
-    if is_new:
+    if lobster is None:
         lobster = game.create_lobster(user_id=sender)
         STATE.lobsters[sender] = lobster
+        logger.info("on_inbound: 为新玩家 %s 即时创建龙虾 %s", sender[:8], lobster.name)
 
     reply_parts: List[str] = []
-    if is_new:
+    if not session.welcomed:
         welcome = content.WELCOME_TEMPLATE.format(
             name=lobster.name,
             breed=lobster.breed,
@@ -154,6 +156,8 @@ async def on_inbound(
             skills="、".join(lobster.skills),
         )
         reply_parts.append(welcome)
+        session.welcomed = True
+        logger.info("on_inbound: 补发欢迎语给 %s（首次入站）", sender[:8])
         for claim in STATE.claims.values():
             if claim.user_id == sender and not claim.lobster_name:
                 claim.lobster_name = lobster.name
@@ -268,12 +272,14 @@ async def _qr_status_task(sid: str) -> None:
             )
             try:
                 await STATE.pool.send(bot_session.user_id, welcome)
+                bot_session.welcomed = True
                 claim.status = "lobster_ready"
                 logger.info("welcome message sent to %s", bot_session.user_id[:8])
             except Exception as exc:
-                # 主动发不一定通；等用户主动发任意一条消息即可
+                # 主动发不一定通：session.welcomed 维持 False，
+                # 等玩家在微信里主动说第一句话时由 on_inbound 补发
                 logger.warning(
-                    "主动欢迎发送失败（这是预期内的，等用户主动发消息即可）：%s", exc,
+                    "主动欢迎发送失败（已标记 welcomed=False，下次入站会补发）：%s", exc,
                 )
                 claim.status = "lobster_ready"
             await _persist_all()

@@ -14,7 +14,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable, Dict, Optional
+from typing import Any, Awaitable, Callable, Dict, Optional
 
 import aiohttp
 
@@ -40,8 +40,11 @@ class BotSession:
     context_token: str = ""
     last_seen_at: float = field(default_factory=time.time)
     running: bool = True
+    # 是否已经发送过欢迎语（介绍玩法的开场白）
+    # 扫码确认时会主动发一次，主动发成功置 True；失败则下次玩家入站补发
+    welcomed: bool = False
 
-    def to_dict(self) -> Dict[str, str]:
+    def to_dict(self) -> Dict[str, Any]:
         return {
             "account_id": self.account_id,
             "token": self.token,
@@ -49,10 +52,11 @@ class BotSession:
             "user_id": self.user_id,
             "sync_buf": self.sync_buf,
             "context_token": self.context_token,
+            "welcomed": self.welcomed,
         }
 
     @classmethod
-    def from_dict(cls, d: Dict[str, str]) -> "BotSession":
+    def from_dict(cls, d: Dict[str, Any]) -> "BotSession":
         return cls(
             account_id=d["account_id"],
             token=d["token"],
@@ -60,6 +64,7 @@ class BotSession:
             user_id=d["user_id"],
             sync_buf=d.get("sync_buf", ""),
             context_token=d.get("context_token", ""),
+            welcomed=bool(d.get("welcomed", False)),
         )
 
 
