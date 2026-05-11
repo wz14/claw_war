@@ -102,6 +102,51 @@ python scripts/test_ai_flow.py
 
 会打印每个 tool 的注册信息、调一次训练/对战、确认 feed 自动入栈。
 
+## Railway 一键上线
+
+代码已经接好了 Railway 自动部署：push 到 `main` 分支 → GitHub Actions 自动跑 `railway up` → 几分钟后线上更新。
+
+### 首次初始化（只跑一次）
+
+```bash
+# 1. 装 Railway CLI 并登录（只需一次）
+bash <(curl -fsSL railway.com/install.sh)
+railway login
+
+# 2. 在项目根目录跑 bootstrap 脚本
+#    会自动：建项目、建名为 claw-war 的 service、推 .env 到环境变量、
+#           挂 /data Volume、生成默认子域 claw-war-production.up.railway.app
+bash scripts/railway_bootstrap.sh
+
+# 3. 创建 Account Token（一次即可，可管理多项目）
+#    浏览器打开 https://railway.com/account/tokens
+#    → "Create Token"，Workspace 下拉选 "No workspace" → 复制 token
+
+# 4. 把 token 存进 GitHub repo secrets
+echo "<paste-your-account-token>" | gh secret set RAILWAY_API_TOKEN -R wz14/claw_war
+```
+
+### 日常部署
+
+```bash
+git push origin main
+# GitHub Actions 自动触发 .github/workflows/deploy.yml
+gh run watch    # 看实时日志
+```
+
+部署完打开 https://claw-war-production.up.railway.app/ 验证。
+
+### 配置文件
+
+- `Dockerfile` — `python:3.12-slim` + `uvicorn $PORT`
+- `railway.json` — 让 Railway 走 Dockerfile builder，定义启动命令与重启策略
+- `.github/workflows/deploy.yml` — `push main` → `railway up --ci --service=claw-war`
+- `scripts/railway_bootstrap.sh` — 一次性初始化（项目/Service/Volume/env vars/域名）
+
+> 注意：workflow 里用 **Account Token**（`RAILWAY_API_TOKEN`），因为它支持
+> `railway up --project ... --service ...` 这种显式参数；Project Token 不能跨
+> 项目用，多人协作或多项目场景下不灵活。两者都行，看你需求选。
+
 ## 文件清单
 
 - `requirements.txt` — fastapi / uvicorn / aiohttp / qrcode / langchain / langchain-openai / langgraph

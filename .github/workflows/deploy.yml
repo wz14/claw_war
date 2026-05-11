@@ -1,0 +1,38 @@
+name: Deploy to Railway
+
+# 触发条件：push 到 main 自动跑；也可在 Actions 页面手动 dispatch
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# 同一时间只跑一个部署，避免 race / 互相覆盖
+concurrency:
+  group: railway-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: railway up --ci
+    runs-on: ubuntu-latest
+    # 用官方 CLI 镜像，避免再装 Node + npm i -g
+    container: ghcr.io/railwayapp/cli:latest
+    env:
+      # Account Token（账号级，可创建/管理多个项目）。在 Railway dashboard
+      # → Account Settings → Tokens → "Create Token"（Workspace 选 No workspace）创建
+      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Print CLI version
+        run: railway --version
+
+      - name: Deploy to Railway
+        # 显式传 project/environment/service ID 避免依赖本地 link 文件
+        # --ci 流式输出构建日志、跑完即退（不挂着）
+        run: |
+          railway up --ci \
+            --project 94af9244-fa68-46ff-b02b-450559f33066 \
+            --environment production \
+            --service claw-war
