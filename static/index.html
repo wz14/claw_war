@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0612" />
+  <title>龙虾斗兽场 · 微信文字养成对战</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Ctext y='52' font-size='52'%3E🦞%3C/text%3E%3C/svg%3E" />
+  <style>
+    /* ============ 设计令牌 ============ */
+    :root {
+      --bg-deep: #0b0612;
+      --bg-mid: #1a0e22;
+      --bg-card: #20132a;
+      --bg-card-hi: #2c1a3a;
+      --accent: #ff5a4f;          /* 龙虾红 */
+      --accent-2: #ffae3d;         /* 麻辣黄 */
+      --accent-3: #56e0a6;
+      --text-1: #fff7ec;
+      --text-2: #c9bcd6;
+      --text-3: #8d7da0;
+      --border: rgba(255, 255, 255, 0.08);
+      --shadow-pop: 0 30px 80px -20px rgba(255, 90, 79, 0.35);
+      --radius: 18px;
+      --radius-lg: 26px;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      background:
+        radial-gradient(ellipse 80% 50% at 20% 0%, rgba(255, 90, 79, 0.18), transparent 70%),
+        radial-gradient(ellipse 80% 50% at 90% 100%, rgba(86, 224, 166, 0.10), transparent 70%),
+        var(--bg-deep);
+      color: var(--text-1);
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue",
+                   "Segoe UI", "Microsoft YaHei", sans-serif;
+      min-height: 100vh;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { color: var(--accent-2); }
+
+    .container {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 32px 20px 80px;
+    }
+
+    /* ============ Hero ============ */
+    .hero {
+      text-align: center;
+      padding: 48px 0 32px;
+    }
+    .hero .tag {
+      display: inline-block;
+      padding: 4px 14px;
+      border: 1px solid var(--accent);
+      border-radius: 999px;
+      color: var(--accent);
+      font-size: 12px;
+      letter-spacing: 1px;
+      margin: 0 0 24px;
+      text-transform: uppercase;
+    }
+    .hero .tag-row { display: block; margin-bottom: 16px; }
+    .hero .lobster-row { display: block; margin-bottom: 8px; }
+    .hero h1 {
+      font-size: clamp(36px, 7vw, 72px);
+      margin: 0 0 16px;
+      letter-spacing: -1px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      font-weight: 900;
+    }
+    .hero .lead {
+      color: var(--text-2);
+      font-size: clamp(15px, 2.2vw, 19px);
+      max-width: 680px;
+      margin: 0 auto 24px;
+    }
+    .hero .lobster {
+      font-size: clamp(80px, 14vw, 140px);
+      filter: drop-shadow(0 20px 40px rgba(255, 90, 79, 0.4));
+      animation: wiggle 4s ease-in-out infinite;
+      display: inline-block;
+    }
+    @keyframes wiggle {
+      0%, 100% { transform: rotate(-4deg) translateY(0); }
+      50% { transform: rotate(4deg) translateY(-6px); }
+    }
+
+    /* ============ 认领按钮 ============ */
+    .claim-cta {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 18px 36px;
+      font-size: 18px;
+      font-weight: 700;
+      color: #1a0a14;
+      background: linear-gradient(135deg, var(--accent-2), var(--accent));
+      border: none;
+      border-radius: 999px;
+      cursor: pointer;
+      box-shadow: var(--shadow-pop);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+      letter-spacing: 0.5px;
+    }
+    .claim-cta:hover {
+      transform: translateY(-2px) scale(1.02);
+      box-shadow: 0 40px 80px -20px rgba(255, 90, 79, 0.55);
+    }
+    .claim-cta:active { transform: scale(0.98); }
+    .claim-cta:disabled {
+      opacity: 0.5; cursor: not-allowed; transform: none;
+    }
+
+    .cta-hint {
+      display: block;
+      margin-top: 14px;
+      color: var(--text-3);
+      font-size: 13px;
+    }
+
+    /* ============ 卡片网格 ============ */
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+      margin-top: 48px;
+    }
+    @media (max-width: 800px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      backdrop-filter: blur(8px);
+    }
+    .card h2 {
+      margin: 0 0 16px;
+      font-size: 20px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .card .sub {
+      color: var(--text-3);
+      font-size: 13px;
+      font-weight: normal;
+    }
+
+    /* ============ 排行榜 ============ */
+    .rank-row {
+      display: grid;
+      grid-template-columns: 28px 1fr auto;
+      gap: 12px;
+      padding: 10px 6px;
+      border-bottom: 1px solid var(--border);
+      align-items: center;
+      font-size: 14px;
+    }
+    .rank-row:last-child { border-bottom: none; }
+    .rank-pos { color: var(--text-3); font-variant-numeric: tabular-nums; }
+    .rank-pos.top { color: var(--accent-2); font-weight: 700; }
+    .rank-name { font-weight: 600; }
+    .rank-meta { color: var(--text-3); font-size: 12px; margin-top: 2px; }
+    .rank-stat { color: var(--accent-3); font-size: 13px; text-align: right; }
+    .rank-empty { color: var(--text-3); text-align: center; padding: 24px 0; }
+
+    /* ============ 战报流 ============ */
+    .feed-item {
+      padding: 14px;
+      background: var(--bg-card-hi);
+      border-radius: 14px;
+      margin-bottom: 12px;
+      font-size: 14px;
+      white-space: pre-wrap;
+      max-height: 240px;
+      overflow: hidden;
+      position: relative;
+    }
+    .feed-item::after {
+      content: '';
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      height: 40px;
+      background: linear-gradient(transparent, var(--bg-card-hi));
+      pointer-events: none;
+    }
+    .feed-empty { color: var(--text-3); text-align: center; padding: 24px 0; }
+
+    /* ============ 二维码弹窗 ============ */
+    .modal-backdrop {
+      position: fixed; inset: 0;
+      background: rgba(8, 4, 14, 0.78);
+      backdrop-filter: blur(8px);
+      z-index: 100;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+      animation: fade-in 0.2s ease;
+    }
+    .modal-backdrop.open { display: flex; }
+    @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+    .modal {
+      width: min(440px, 100%);
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 28px;
+      text-align: center;
+      box-shadow: 0 50px 100px -20px rgba(255, 90, 79, 0.4);
+      position: relative;
+    }
+    .modal .close {
+      position: absolute;
+      top: 14px; right: 16px;
+      background: transparent;
+      border: none;
+      color: var(--text-3);
+      font-size: 24px;
+      cursor: pointer;
+      line-height: 1;
+    }
+    .modal h3 {
+      margin: 0 0 6px;
+      font-size: 22px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .modal .modal-sub {
+      color: var(--text-3);
+      font-size: 13px;
+      margin-bottom: 20px;
+      min-height: 36px;
+    }
+    .qr-wrap {
+      width: 280px;
+      height: 280px;
+      margin: 0 auto 20px;
+      background: #fff;
+      border-radius: 18px;
+      padding: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .qr-wrap img {
+      width: 100%; height: 100%; display: block;
+    }
+    .qr-wrap.loading::before {
+      content: '正在召唤龙虾的二维码...';
+      color: #777;
+      font-size: 12px;
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #fff;
+    }
+    .qr-wrap.scaned::after, .qr-wrap.confirmed::after, .qr-wrap.lobster_ready::after, .qr-wrap.expired::after, .qr-wrap.failed::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: rgba(20, 12, 28, 0.86);
+      backdrop-filter: blur(6px);
+    }
+    .qr-overlay {
+      position: absolute;
+      inset: 0;
+      color: var(--text-1);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      font-size: 14px;
+      z-index: 2;
+      padding: 14px;
+    }
+    .qr-overlay .big {
+      font-size: 32px;
+    }
+    .qr-overlay.hidden { display: none; }
+
+    .modal .status-pill {
+      display: inline-block;
+      padding: 4px 14px;
+      border-radius: 999px;
+      font-size: 12px;
+      letter-spacing: 1px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-2);
+      margin-bottom: 14px;
+    }
+    .modal .status-pill.scaned { background: rgba(255, 174, 61, 0.15); color: var(--accent-2); }
+    .modal .status-pill.confirmed, .modal .status-pill.lobster_ready { background: rgba(86, 224, 166, 0.15); color: var(--accent-3); }
+    .modal .status-pill.expired, .modal .status-pill.failed { background: rgba(255, 90, 79, 0.18); color: var(--accent); }
+
+    .modal-actions {
+      display: flex;
+      gap: 10px;
+      justify-content: center;
+      flex-wrap: wrap;
+    }
+    .btn-ghost {
+      padding: 10px 20px;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-1);
+      border-radius: 999px;
+      font-size: 14px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-ghost:hover { background: rgba(255, 255, 255, 0.06); }
+    .btn-primary {
+      padding: 10px 20px;
+      background: linear-gradient(135deg, var(--accent-2), var(--accent));
+      color: #1a0a14;
+      border: none;
+      border-radius: 999px;
+      font-size: 14px;
+      cursor: pointer;
+      font-weight: 700;
+    }
+
+    /* ============ 统计条 ============ */
+    .stats-row {
+      display: flex;
+      justify-content: center;
+      gap: 36px;
+      flex-wrap: wrap;
+      margin: 36px 0 0;
+      color: var(--text-2);
+      font-size: 13px;
+    }
+    .stats-row b {
+      color: var(--text-1);
+      font-size: 22px;
+      font-weight: 800;
+      display: block;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+
+    /* ============ 玩法说明 ============ */
+    .how {
+      margin-top: 48px;
+      background: var(--bg-mid);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 28px;
+    }
+    .how h2 { margin-top: 0; }
+    .how ol {
+      counter-reset: step;
+      list-style: none;
+      padding: 0;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 14px;
+    }
+    .how li {
+      counter-increment: step;
+      background: var(--bg-card);
+      padding: 18px 16px;
+      border-radius: 14px;
+      border: 1px solid var(--border);
+      position: relative;
+    }
+    .how li::before {
+      content: counter(step);
+      position: absolute;
+      top: -10px;
+      left: 14px;
+      width: 28px;
+      height: 28px;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      color: #1a0a14;
+      border-radius: 999px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 14px;
+    }
+    .how li strong { color: var(--accent-2); }
+
+    /* ============ footer ============ */
+    .footer {
+      margin-top: 48px;
+      text-align: center;
+      color: var(--text-3);
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+
+    <section class="hero">
+      <div class="lobster-row"><div class="lobster">🦞</div></div>
+      <div class="tag-row"><span class="tag">Hackathon · 微信文字养成对战</span></div>
+      <h1>龙虾斗兽场</h1>
+      <p class="lead">
+        在微信里养一只文字龙虾，喂它、训练它、给它装技能，<br />
+        然后和别人的龙虾打一架。规则判输赢，AI 负责把过程写得很好笑。
+      </p>
+      <button id="claimBtn" class="claim-cta">
+        <span style="font-size: 24px;">🦞</span>
+        认领你的龙虾
+      </button>
+      <span class="cta-hint">扫码即刻上线 · 不需要下载任何 App · 输了不能下锅</span>
+
+      <div class="stats-row">
+        <div><b id="statLobsters">0</b>已诞生龙虾</div>
+        <div><b id="statBattles">0</b>累计对战</div>
+        <div><b id="statBots">0</b>活跃 Bot</div>
+      </div>
+    </section>
+
+    <div class="grid">
+      <div class="card">
+        <h2>🏆 名气榜 <span class="sub">每 5 秒刷新</span></h2>
+        <div id="leaderboard"></div>
+      </div>
+      <div class="card">
+        <h2>📰 最近战报 <span class="sub">真实发生在微信里</span></h2>
+        <div id="feed"></div>
+      </div>
+    </div>
+
+    <section class="how">
+      <h2>🦞 玩法（极简）</h2>
+      <ol>
+        <li><strong>认领</strong>：点上面那个红橙按钮，扫码出现的二维码，把龙虾领回家。</li>
+        <li><strong>养成</strong>：在微信里直接发「训练」「喂食」「探险」，属性会变。</li>
+        <li><strong>对战</strong>：发「挑战」，匹配一只野生龙虾，AI 生成戏剧化战报。</li>
+        <li><strong>上榜</strong>：赢得越多，名气越高。打不过别人，至少打得过 AI。</li>
+      </ol>
+    </section>
+
+    <p class="footer">
+      🦞 Made for hackathon · 不退换 · 不下锅 · 不上头不付钱
+    </p>
+  </div>
+
+  <!-- ============ 二维码弹窗 ============ -->
+  <div id="modal" class="modal-backdrop">
+    <div class="modal">
+      <button class="close" id="modalClose" aria-label="关闭">×</button>
+      <span class="status-pill" id="statusPill">准备中…</span>
+      <h3 id="modalTitle">扫码认领你的龙虾</h3>
+      <p class="modal-sub" id="modalSub">用微信扫一扫，龙虾就归你了。</p>
+      <div class="qr-wrap loading" id="qrWrap">
+        <img id="qrImage" alt="二维码" />
+        <div class="qr-overlay hidden" id="qrOverlay"></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-ghost" id="refreshBtn">🔄 刷新二维码</button>
+        <button class="btn-primary" id="newClaimBtn">🦞 重新认领</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ============ 工具 ============
+    const $ = (sel) => document.querySelector(sel);
+    const fmt = (n) => (n || 0).toString();
+
+    // ============ 状态 ============
+    let currentSid = null;
+    let pollTimer = null;
+
+    const STATUS_TEXT = {
+      wait: { pill: '等你扫码', title: '扫码认领你的龙虾', sub: '用微信扫一扫，龙虾就归你了。', overlay: null },
+      scaned: { pill: '已扫码', title: '已扫码！等你在微信里确认', sub: '别犹豫，它已经在等你点击「确认登录」了。', overlay: { big: '📲', text: '在微信里点「确认」' } },
+      confirmed: { pill: '已确认', title: '正在召唤龙虾…', sub: '系统在给它分配名字和技能，几秒就好。', overlay: { big: '🦞', text: '正在召唤…' } },
+      lobster_ready: { pill: '已就位', title: '龙虾已就位 🎉', sub: '现在去微信里和它说话，发「训练」「挑战」「我的龙虾」都行。', overlay: { big: '✅', text: '龙虾已就位，去微信吧' } },
+      expired: { pill: '二维码过期', title: '二维码躺平了', sub: '它装死装太久，点「重新认领」换一张新的。', overlay: { big: '😴', text: '二维码已过期' } },
+      failed: { pill: '出错了', title: '出了点问题', sub: '系统流泪，请重新认领。', overlay: { big: '⚠️', text: '出错了，重新认领' } },
+    };
+
+    // ============ 弹窗控制 ============
+    function openModal() { $('#modal').classList.add('open'); }
+    function closeModal() {
+      $('#modal').classList.remove('open');
+      stopPolling();
+    }
+
+    function applyStatus(status, lobsterName, tagline) {
+      const conf = STATUS_TEXT[status] || STATUS_TEXT.wait;
+      const pill = $('#statusPill');
+      pill.className = 'status-pill ' + status;
+      pill.textContent = conf.pill;
+
+      let title = conf.title;
+      let sub = conf.sub;
+      if (status === 'lobster_ready' && lobsterName) {
+        title = `龙虾【${lobsterName}】已就位 🎉`;
+        sub = '去微信里直接和它说话：训练 / 挑战 / 我的龙虾 / 帮助。';
+      } else if (status === 'wait' && tagline) {
+        sub = tagline;
+      }
+      $('#modalTitle').textContent = title;
+      $('#modalSub').textContent = sub;
+
+      const wrap = $('#qrWrap');
+      wrap.className = 'qr-wrap';
+      wrap.classList.add(status);
+      const overlay = $('#qrOverlay');
+      if (conf.overlay) {
+        overlay.classList.remove('hidden');
+        overlay.innerHTML = `<div class="big">${conf.overlay.big}</div><div>${conf.overlay.text}</div>`;
+      } else {
+        overlay.classList.add('hidden');
+      }
+    }
+
+    // ============ 网络 ============
+    async function newClaim() {
+      stopPolling();
+      $('#qrImage').removeAttribute('src');
+      $('#qrWrap').classList.add('loading');
+      applyStatus('wait', null, null);
+      openModal();
+      try {
+        const resp = await fetch('/api/claim', { method: 'POST' });
+        if (!resp.ok) throw new Error(await resp.text());
+        const data = await resp.json();
+        currentSid = data.sid;
+        // 用 timestamp 强制刷新图片
+        $('#qrImage').src = `${data.qr_image_url}?t=${Date.now()}`;
+        $('#qrWrap').classList.remove('loading');
+        applyStatus(data.status, null, data.tagline);
+        startPolling();
+      } catch (err) {
+        applyStatus('failed', null, null);
+        $('#modalSub').textContent = '拉取二维码失败：' + err.message;
+      }
+    }
+
+    async function refreshQr() {
+      // 实际上后端会自动在 expired 时刷新；这里手动让前端重发起一次 claim
+      newClaim();
+    }
+
+    function startPolling() {
+      stopPolling();
+      pollTimer = setInterval(pollOnce, 1500);
+    }
+
+    function stopPolling() {
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = null;
+    }
+
+    async function pollOnce() {
+      if (!currentSid) return;
+      try {
+        const resp = await fetch(`/api/claim/${currentSid}`);
+        if (!resp.ok) return;
+        const data = await resp.json();
+        applyStatus(data.status, data.lobster_name, null);
+        // 二维码可能被后端自动换了，刷新一下图片
+        if (data.status === 'wait' && data.qr_image_url) {
+          const cur = $('#qrImage').src;
+          if (!cur || !cur.includes(currentSid)) {
+            $('#qrImage').src = `${data.qr_image_url}?t=${Date.now()}`;
+          }
+        }
+        if (['lobster_ready', 'expired', 'failed'].includes(data.status)) {
+          stopPolling();
+          // 顺便刷新一下大盘
+          loadLeaderboard();
+          loadStats();
+        }
+      } catch (err) {
+        console.warn('poll error', err);
+      }
+    }
+
+    // ============ 排行榜 ============
+    async function loadLeaderboard() {
+      try {
+        const resp = await fetch('/api/leaderboard');
+        const data = await resp.json();
+        const el = $('#leaderboard');
+        if (!data.length) {
+          el.innerHTML = '<div class="rank-empty">还没有龙虾上榜。<br/>你来第一个？</div>';
+          return;
+        }
+        el.innerHTML = data.map((l, i) => `
+          <div class="rank-row">
+            <div class="rank-pos ${i < 3 ? 'top' : ''}">${i + 1}</div>
+            <div>
+              <div class="rank-name">${escapeHtml(l.name)} <span class="sub" style="color:var(--text-3);font-size:11px;">· Lv.${l.level} ${escapeHtml(l.stage)}</span></div>
+              <div class="rank-meta">${escapeHtml(l.personality)} · ${l.wins}胜${l.losses}负${l.titles && l.titles.length ? ' · ' + l.titles.map(escapeHtml).join('/') : ''}</div>
+            </div>
+            <div class="rank-stat">名气 ${l.fame}<br/><span style="color:var(--text-3);font-size:11px;">${escapeHtml(l.morale_label)}</span></div>
+          </div>
+        `).join('');
+      } catch (err) {
+        console.warn(err);
+      }
+    }
+
+    // ============ 战报流 ============
+    async function loadFeed() {
+      try {
+        const resp = await fetch('/api/feed?limit=10');
+        const data = await resp.json();
+        const el = $('#feed');
+        if (!data.length) {
+          el.innerHTML = '<div class="feed-empty">还没人开打。<br/>第一只下场的将被铭记。</div>';
+          return;
+        }
+        el.innerHTML = data.map((f) => `
+          <div class="feed-item">${escapeHtml(f.narration || f.summary || '')}</div>
+        `).join('');
+      } catch (err) {
+        console.warn(err);
+      }
+    }
+
+    // ============ 大盘统计 ============
+    async function loadStats() {
+      try {
+        const resp = await fetch('/api/stats');
+        const data = await resp.json();
+        $('#statLobsters').textContent = fmt(data.lobster_count);
+        $('#statBattles').textContent = fmt(data.battle_count);
+        $('#statBots').textContent = fmt(data.active_bots);
+      } catch (err) {
+        console.warn(err);
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s || '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
+    // ============ 事件 ============
+    $('#claimBtn').addEventListener('click', newClaim);
+    $('#newClaimBtn').addEventListener('click', newClaim);
+    $('#refreshBtn').addEventListener('click', refreshQr);
+    $('#modalClose').addEventListener('click', closeModal);
+    $('#modal').addEventListener('click', (e) => {
+      if (e.target.id === 'modal') closeModal();
+    });
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') closeModal();
+    });
+
+    // ============ 启动 ============
+    loadLeaderboard();
+    loadFeed();
+    loadStats();
+    setInterval(loadLeaderboard, 5000);
+    setInterval(loadFeed, 5000);
+    setInterval(loadStats, 5000);
+  </script>
+</body>
+</html>
