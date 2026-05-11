@@ -577,6 +577,15 @@
       if (!currentSid) return;
       try {
         const resp = await fetch(`/api/claim/${currentSid}`);
+        // 404 = 服务端已经回收了这个 claim（例如后端重启）。
+        // 不要一直轮询刷日志，停掉，让用户点「重新认领」。
+        if (resp.status === 404) {
+          stopPolling();
+          currentSid = null;
+          applyStatus('expired', null, null);
+          $('#modalSub').textContent = '认领会话已过期（服务可能重启过），点「重新认领」继续。';
+          return;
+        }
         if (!resp.ok) return;
         const data = await resp.json();
         applyStatus(data.status, data.lobster_name, null);
