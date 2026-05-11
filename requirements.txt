@@ -12,6 +12,9 @@ qrcode[pil]>=7.4.2
 # 数据模型
 pydantic>=2.9.0
 
+# 加载 .env
+python-dotenv>=1.0.1
+
 # LLM 对话与工具调用（默认走 DeepSeek 这种 OpenAI 兼容的便宜模型）
 langchain>=0.3.7
 langchain-openai>=0.2.8

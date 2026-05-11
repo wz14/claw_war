@@ -15,6 +15,12 @@
 
 from __future__ import annotations
 
+# 在所有 import 之前加载 .env，让 ChatOpenAI 等模块能读到环境变量。
+# 不写 fallback：如果项目里有 .env 就加载；没有就直接走系统 env。
+from dotenv import load_dotenv as _load_dotenv  # noqa: E402
+
+_load_dotenv()
+
 import asyncio
 import base64
 import io
