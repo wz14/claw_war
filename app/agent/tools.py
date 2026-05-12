@@ -39,10 +39,10 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
     """为某个玩家构造一套绑定好 user_id 的工具集。"""
 
     def _status(_query: str = "") -> str:
-        """读出玩家当前龙虾的完整状态：等级、属性、技能、战绩、心情。"""
+        """读出玩家当前龙虾的状态：等级、6 项属性、心情、金币、名气、当前排名。"""
         lobster = _ensure_lobster(state, user_id)
         logger.info("tool[status] uid=%s name=%s", user_id[:8], lobster.name)
-        return actions.handle_status(lobster)
+        return actions.handle_status(lobster, state.lobsters)
 
     def _train(_query: str = "") -> str:
         """让龙虾去训练。会随机加 钳力/速度/壳硬/耐力，偶尔掉心情，有冷却。"""

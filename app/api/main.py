@@ -45,7 +45,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .. import content
 from ..agent import AIHandler
-from ..core import factory
+from ..core import factory, render
 from ..core.lobster import Lobster
 from ..integrations import weixin_client as wx
 from ..integrations.bot_pool import (
@@ -133,7 +133,11 @@ async def _load_initial() -> None:
 
 
 def _render_welcome(lobster: Lobster) -> str:
-    """根据龙虾属性渲染欢迎语模板。"""
+    """根据龙虾属性渲染欢迎语模板。
+
+    末尾的 {share_url} 占位符在这里填入，让欢迎语自带分享入口
+    （Phase 2 排版规约：所有出站消息都要带分享链接）。
+    """
     return content.WELCOME_TEMPLATE.format(
         name=lobster.name,
         breed=lobster.breed,
@@ -144,6 +148,7 @@ def _render_welcome(lobster: Lobster) -> str:
         stamina=lobster.stamina,
         luck=lobster.luck,
         skills="、".join(lobster.skills),
+        share_url=content.SHARE_URL,
     )
 
 
@@ -198,6 +203,11 @@ async def on_inbound(
     except Exception as exc:
         logger.error("on_inbound: AI 主持人异常 uid=%s: %s", sender[:8], exc, exc_info=True)
         ai_reply = "（兽场解说嗓子哑了，喝口水再来。请稍后再发一次。）"
+
+    # Phase 2 排版规约：每条 AI 回复末尾附 player_card 页脚
+    # （含名气排名 + 分享链接，方便玩家随手转发拉新人）
+    if ai_reply:
+        ai_reply = render.append_footer(ai_reply, lobster, STATE.lobsters)
 
     await _persist_all()
     return ai_reply or None

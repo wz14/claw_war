@@ -117,8 +117,21 @@ class Lobster:
     # ===== 衍生属性 =====
 
     def morale_label(self) -> str:
+        """详细心情描述（带情景吐槽，给 AI prompt / 排行榜用）。"""
         if self.morale >= 85:
             return "亢奋（你是不是又给它喝啤酒了）"
+        if self.morale >= 65:
+            return "良好"
+        if self.morale >= 40:
+            return "一般"
+        if self.morale >= 20:
+            return "低落"
+        return "想退役"
+
+    def morale_label_short(self) -> str:
+        """精简心情标签（给 player_card 页脚用，只 2 个字保证排版整齐）。"""
+        if self.morale >= 85:
+            return "亢奋"
         if self.morale >= 65:
             return "良好"
         if self.morale >= 40:
@@ -156,24 +169,21 @@ class Lobster:
         return round(base, 2)
 
     def stats_summary(self) -> str:
-        skills = "、".join(self.skills) if self.skills else "无（空有一身肌肉）"
-        titles = "、".join(self.titles) if self.titles else "无（还没整出花样）"
+        """简化版属性面板（不含技能/称号/战绩，由 Phase 2 排版规约统一）。
+
+        注意：此方法 lobster 类内独立可用，**不**含名气排名 / 分享链接，
+        因为这两项需要 all_lobsters 上下文。完整 player_card 走
+        app.core.render.render_player_card(lobster, all_lobsters)。
+        """
         return (
-            f"【{self.name}】Lv.{self.level} · {self.stage()}\n"
-            f"品种：{self.breed}\n"
-            f"性格：{self.personality}\n"
-            f"战绩：{self.wins}胜{self.losses}负"
-            f"{' · 连胜' + str(self.win_streak) if self.win_streak >= 2 else ''}"
-            f"{' · 连败' + str(self.lose_streak) if self.lose_streak >= 2 else ''}\n"
-            f"———\n"
-            f"钳力 {self.claw}   壳硬 {self.shell}\n"
-            f"速度 {self.speed}   耐力 {self.stamina}\n"
-            f"运气 {self.luck}   心情 {self.morale_label()} ({self.morale})\n"
-            f"金币 {self.coins}   名气 {self.fame}\n"
-            f"经验 {self.exp}\n"
-            f"———\n"
-            f"技能：{skills}\n"
-            f"称号：{titles}"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"🦞 {self.name}  Lv.{self.level}\n"
+            f"━━━━━━━━━━━━━━━━\n"
+            f"🥊 钳 {self.claw}  🛡 壳 {self.shell}  💨 速 {self.speed}\n"
+            f"🔋 耐 {self.stamina}  🍀 运 {self.luck}  "
+            f"❤️ 心情 {self.morale_label_short()}\n"
+            f"\n"
+            f"🎒 金币 {self.coins}  ⭐ 名气 {self.fame}"
         )
 
     # ===== 行为辅助 =====

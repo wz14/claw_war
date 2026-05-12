@@ -12,7 +12,7 @@ import time
 from typing import Dict
 
 from .. import content
-from . import battle, factory
+from . import battle, factory, render
 from .lobster import Lobster
 
 logger = logging.getLogger(__name__)
@@ -30,8 +30,12 @@ def _cooldown_text(seconds: int, action_cn: str) -> str:
 # ===== 状态查看 =====
 
 
-def handle_status(lobster: Lobster) -> str:
-    return lobster.stats_summary()
+def handle_status(lobster: Lobster, all_lobsters: Dict[str, Lobster]) -> str:
+    """返回完整 player_card（含名气排名 + 分享链接）。
+
+    需要 all_lobsters 才能算排名，所以从 tools._status 透传。
+    """
+    return render.render_player_card(lobster, all_lobsters)
 
 
 # ===== 养成动作 =====

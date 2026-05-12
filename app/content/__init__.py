@@ -11,6 +11,11 @@
 
 from __future__ import annotations
 
+# 分享链接 = Railway 生产环境地址。
+# 玩家在微信里看到 player_card 末尾这一行可以直接转发给朋友。
+# 注意保持和 render.SHARE_URL 一致（render.py 从这里 import）。
+SHARE_URL = "https://claw-war-production.up.railway.app/"
+
 # ============ 龙虾基础属性池 ============
 
 BREEDS = [
@@ -280,6 +285,8 @@ WELCOME_TEMPLATE = """欢迎来到 🦞【龙虾斗兽场】。
 
 ———
 👉 建议开局：先发「训练」练两下，再「挑战」试试水。
+
+🔗 分享给朋友：{share_url}
 """
 
 CLAIM_TEASERS = [
