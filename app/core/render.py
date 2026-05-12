@@ -35,14 +35,14 @@ DIVIDER = "━━━━━━━━━━━━━━━━"
 
 
 def compute_rank(lobster: "Lobster", all_lobsters: Dict[str, "Lobster"]) -> int:
-    """按 (fame, wins, level) 倒序计算 lobster 在真人玩家中的排名。
+    """按 (fame, wins, level) 倒序计算 lobster 在全榜中的排名（1-based）。
 
-    返回 1-based 排名。如果 lobster 不在 all_lobsters 里（理论上不应该，
-    但兜底防御），返回真人总数 + 1。
+    Phase 3 决策：人机龙虾（is_bot=True）和真人玩家**同样参与排名**，
+    玩家视角看不出 bot / 真人区别。这样 leaderboard 也热闹、新人有目标可追。
+    如果 lobster 不在 all_lobsters 里（兜底防御），返回总数 + 1。
     """
-    real_lobsters = [l for l in all_lobsters.values() if not l.is_bot]
     sorted_list = sorted(
-        real_lobsters,
+        all_lobsters.values(),
         key=lambda l: (l.fame, l.wins, l.level),
         reverse=True,
     )
@@ -53,7 +53,7 @@ def compute_rank(lobster: "Lobster", all_lobsters: Dict[str, "Lobster"]) -> int:
         "compute_rank: lobster %s 不在 all_lobsters 里，返回兜底 rank",
         lobster.user_id[:8],
     )
-    return len(real_lobsters) + 1
+    return len(sorted_list) + 1
 
 
 def render_player_card(lobster: "Lobster", all_lobsters: Dict[str, "Lobster"]) -> str:

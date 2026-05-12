@@ -46,7 +46,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .. import content
 from ..agent import AIHandler
-from ..core import factory, render
+from ..core import bot_manager, factory, render
 from ..core.lobster import Lobster
 from ..integrations import weixin_client as wx
 from ..integrations.bot_pool import (
@@ -113,6 +113,8 @@ class AppState:
     feed: List[Dict[str, Any]] = field(default_factory=list)
     persist_lock: asyncio.Lock = field(default_factory=asyncio.Lock)
     ai: Optional[AIHandler] = None
+    # Phase 3：种子人机维护任务（启动后常驻；shutdown 时 cancel）
+    bot_maintenance_task: Optional[asyncio.Task] = None
 
 
 STATE = AppState()
@@ -381,11 +383,23 @@ async def lifespan(app: FastAPI):
         except Exception as exc:
             logger.warning("恢复 bot session %s 失败: %s", uid[:8], exc)
 
+    # Step 7: 启动种子人机维护（启动期补足下限 + 之后每 24h 新增 + 巡检）
+    STATE.bot_maintenance_task = asyncio.create_task(
+        bot_manager.bot_maintenance_loop(STATE),
+        name="bot_maintenance_loop",
+    )
+
     yield
 
     logger.info("关闭龙虾斗兽场...")
     for task in list(STATE.claim_tasks.values()):
         task.cancel()
+    if STATE.bot_maintenance_task is not None and not STATE.bot_maintenance_task.done():
+        STATE.bot_maintenance_task.cancel()
+        try:
+            await STATE.bot_maintenance_task
+        except asyncio.CancelledError:
+            pass
     if STATE.pool is not None:
         await STATE.pool.stop_all()
     if STATE.http is not None and not STATE.http.closed:
@@ -500,8 +514,9 @@ async def feed_endpoint(limit: int = 20) -> List[Dict[str, Any]]:
 async def stats() -> Dict[str, Any]:
     """大盘统计。
 
-    active_bots 只算"非 dead 且 running"的 session，避免 Phase 0 后失效的 bot
-    依然被记成活跃，让前端数字虚高。
+    - lobster_count: 全体龙虾数（含人机）
+    - npc_count:     人机龙虾数（is_bot=True，Phase 3 引入的种子陪练池）
+    - active_bots / dead_bots: 指 ilink wechat 长轮询 session（与人机龙虾无关）
     """
     if STATE.pool is None:
         active = 0
@@ -509,8 +524,10 @@ async def stats() -> Dict[str, Any]:
     else:
         active = sum(1 for s in STATE.pool.sessions.values() if not s.dead)
         dead = sum(1 for s in STATE.pool.sessions.values() if s.dead)
+    npc_count = sum(1 for l in STATE.lobsters.values() if l.is_bot)
     return {
         "lobster_count": len(STATE.lobsters),
+        "npc_count": npc_count,
         "battle_count": sum(l.wins + l.losses for l in STATE.lobsters.values()),
         "active_bots": active,
         "dead_bots": dead,
