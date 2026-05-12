@@ -93,6 +93,20 @@ async def delete_lobster(user_id: str) -> None:
     await asyncio.to_thread(_delete_lobster_sync, user_id)
 
 
+def _load_lobster_sync(user_id: str) -> Optional[Dict[str, Any]]:
+    """读单只龙虾的 blob_json（Phase 6 给 /api/battles 详情用）。"""
+    row = db.get_conn().execute(
+        "SELECT blob_json FROM lobsters WHERE user_id=?", (user_id,)
+    ).fetchone()
+    if row is None:
+        return None
+    return json.loads(row["blob_json"])
+
+
+async def load_lobster(user_id: str) -> Optional[Dict[str, Any]]:
+    return await asyncio.to_thread(_load_lobster_sync, user_id)
+
+
 # ============ Bot Session ============
 
 
@@ -221,6 +235,113 @@ def _trim_feed_sync(keep: int) -> int:
 
 async def trim_feed(keep: int = 200) -> int:
     return await asyncio.to_thread(_trim_feed_sync, keep)
+
+
+# ============ Battles（Phase 6 战斗历史）============
+
+
+def _save_battle_sync(
+    challenger_uid: str,
+    opponent_uid: str,
+    winner_uid: str,
+    narration: str,
+    rewards_meta: Dict[str, Any],
+    is_pvp: bool = False,
+    is_clutch: bool = False,
+    is_upset: bool = False,
+    ts: Optional[float] = None,
+) -> int:
+    """同步落 battles 表。返回新插入的 id。
+
+    rewards_meta 既包含奖励（exp/coins/fame）也包含元数据（双方名字/胜方名字/结束回合），
+    一律 dump 进 rewards_json，避免再扩 schema。
+    """
+    conn = db.get_conn()
+    cur = conn.execute(
+        "INSERT INTO battles("
+        "ts, challenger_uid, opponent_uid, winner_uid, "
+        "is_pvp, is_clutch, is_upset, rewards_json, narration"
+        ") VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (
+            ts if ts is not None else time.time(),
+            challenger_uid,
+            opponent_uid,
+            winner_uid,
+            1 if is_pvp else 0,
+            1 if is_clutch else 0,
+            1 if is_upset else 0,
+            json.dumps(rewards_meta, ensure_ascii=False, separators=(",", ":")),
+            narration,
+        ),
+    )
+    new_id = int(cur.lastrowid or 0)
+    logger.debug(
+        "dao: 战斗入库 id=%d challenger=%s opponent=%s winner=%s pvp=%s",
+        new_id, challenger_uid[:8], opponent_uid[:8], winner_uid[:8], is_pvp,
+    )
+    return new_id
+
+
+def save_battle_sync(
+    challenger_uid: str,
+    opponent_uid: str,
+    winner_uid: str,
+    narration: str,
+    rewards_meta: Dict[str, Any],
+    is_pvp: bool = False,
+    is_clutch: bool = False,
+    is_upset: bool = False,
+    ts: Optional[float] = None,
+) -> int:
+    """同步入库（供 actions.handle_battle 这种 sync 路径直接调）。"""
+    return _save_battle_sync(
+        challenger_uid=challenger_uid,
+        opponent_uid=opponent_uid,
+        winner_uid=winner_uid,
+        narration=narration,
+        rewards_meta=rewards_meta,
+        is_pvp=is_pvp,
+        is_clutch=is_clutch,
+        is_upset=is_upset,
+        ts=ts,
+    )
+
+
+def _load_battles_for_user_sync(user_id: str, limit: int) -> List[Dict[str, Any]]:
+    """按时间倒序，拉这个 user 参与过（challenger 或 opponent 任一）的最近 N 场战斗。"""
+    rows = db.get_conn().execute(
+        "SELECT id, ts, challenger_uid, opponent_uid, winner_uid, "
+        "is_pvp, is_clutch, is_upset, rewards_json, narration "
+        "FROM battles "
+        "WHERE challenger_uid = ? OR opponent_uid = ? "
+        "ORDER BY id DESC LIMIT ?",
+        (user_id, user_id, max(1, int(limit))),
+    ).fetchall()
+    out: List[Dict[str, Any]] = []
+    for row in rows:
+        meta: Dict[str, Any] = json.loads(row["rewards_json"] or "{}")
+        out.append({
+            "id": int(row["id"]),
+            "ts": float(row["ts"]),
+            "challenger_uid": row["challenger_uid"],
+            "opponent_uid": row["opponent_uid"],
+            "winner_uid": row["winner_uid"],
+            "is_pvp": bool(row["is_pvp"]),
+            "is_clutch": bool(row["is_clutch"]),
+            "is_upset": bool(row["is_upset"]),
+            "rewards_meta": meta,
+            "narration": row["narration"],
+        })
+    return out
+
+
+async def load_battles_for_user(user_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+    return await asyncio.to_thread(_load_battles_for_user_sync, user_id, limit)
+
+
+def load_battles_for_user_sync(user_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+    """同步版（给 sync tools 用）。"""
+    return _load_battles_for_user_sync(user_id, limit)
 
 
 # ============ 计数 / 统计（给 /api/stats 用）============

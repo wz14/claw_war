@@ -76,3 +76,13 @@ async def load_feed() -> List[Dict[str, Any]]:
     items.reverse()  # dao 按 id DESC，反转回来变时间升序
     logger.info("storage: 加载 %d 条战报 (sqlite)", len(items))
     return items
+
+
+# ============ Battles（Phase 6）============
+
+
+async def load_battles_for_user(user_id: str, limit: int = 10) -> List[Dict[str, Any]]:
+    """按时间倒序返回某 user 参与过的最近 N 场战斗。给 /api/battles 用。"""
+    items = await dao.load_battles_for_user(user_id, limit)
+    logger.info("storage: 加载 user=%s 战斗 %d 条 (sqlite)", user_id[:8], len(items))
+    return items

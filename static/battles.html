@@ -1,0 +1,402 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#0b0612" />
+  <title>战斗历史 · 龙虾斗兽场</title>
+  <link rel="icon" type="image/jpeg" href="/static/dead_claw.jpg" />
+  <style>
+    /* ============ 设计令牌（与主页保持一致）============ */
+    :root {
+      --bg-deep: #0b0612;
+      --bg-mid: #1a0e22;
+      --bg-card: #20132a;
+      --bg-card-hi: #2c1a3a;
+      --accent: #ff5a4f;
+      --accent-2: #ffae3d;
+      --accent-3: #56e0a6;
+      --text-1: #fff7ec;
+      --text-2: #c9bcd6;
+      --text-3: #8d7da0;
+      --border: rgba(255, 255, 255, 0.08);
+      --radius: 18px;
+      --radius-lg: 26px;
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      background:
+        radial-gradient(ellipse 80% 50% at 20% 0%, rgba(255, 90, 79, 0.18), transparent 70%),
+        radial-gradient(ellipse 80% 50% at 90% 100%, rgba(86, 224, 166, 0.10), transparent 70%),
+        var(--bg-deep);
+      color: var(--text-1);
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Helvetica Neue",
+                   "Segoe UI", "Microsoft YaHei", sans-serif;
+      min-height: 100vh;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container {
+      max-width: 880px;
+      margin: 0 auto;
+      padding: 28px 18px 80px;
+    }
+
+    /* ============ 顶部 ============ */
+    .topbar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 24px;
+      color: var(--text-3);
+      font-size: 13px;
+    }
+    .topbar a {
+      color: var(--text-3);
+      text-decoration: none;
+      transition: color 0.15s;
+    }
+    .topbar a:hover { color: var(--accent-2); }
+
+    .page-head {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 24px 26px;
+      margin-bottom: 20px;
+    }
+    .page-head h1 {
+      margin: 0 0 6px;
+      font-size: clamp(22px, 4vw, 30px);
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+      font-weight: 800;
+    }
+    .page-head .meta {
+      color: var(--text-3);
+      font-size: 13px;
+      margin: 0;
+    }
+    .page-head .uid {
+      color: var(--text-3);
+      font-size: 11px;
+      margin-top: 8px;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      word-break: break-all;
+      opacity: 0.6;
+    }
+
+    .loading,
+    .empty,
+    .error {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 32px 24px;
+      text-align: center;
+      color: var(--text-3);
+      font-size: 14px;
+    }
+    .error { color: var(--accent); }
+
+    /* ============ 战斗卡片 ============ */
+    .battle-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 16px 18px;
+      margin-bottom: 14px;
+      border-left: 4px solid transparent;
+      transition: transform 0.12s ease;
+    }
+    .battle-card.win { border-left-color: var(--accent-3); }
+    .battle-card.lose { border-left-color: var(--accent); }
+
+    .battle-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .battle-result {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .result-tag {
+      display: inline-block;
+      padding: 3px 12px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+    .battle-card.win .result-tag {
+      background: rgba(86, 224, 166, 0.16);
+      color: var(--accent-3);
+    }
+    .battle-card.lose .result-tag {
+      background: rgba(255, 90, 79, 0.16);
+      color: var(--accent);
+    }
+    .battle-vs {
+      font-size: 15px;
+      font-weight: 600;
+    }
+    .vs-arrow {
+      color: var(--text-3);
+      font-weight: 400;
+      font-size: 12px;
+      margin: 0 6px;
+    }
+    .battle-meta {
+      text-align: right;
+      color: var(--text-3);
+      font-size: 11px;
+      line-height: 1.7;
+      white-space: nowrap;
+    }
+    .battle-tags {
+      margin-top: 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .chip {
+      font-size: 11px;
+      padding: 2px 10px;
+      border-radius: 999px;
+      background: rgba(255, 174, 61, 0.13);
+      color: var(--accent-2);
+    }
+    .chip.pvp {
+      background: rgba(255, 90, 79, 0.18);
+      color: var(--accent);
+    }
+    .battle-rewards {
+      margin-top: 10px;
+      color: var(--accent-2);
+      font-size: 12.5px;
+    }
+    .battle-toggle {
+      margin-top: 12px;
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text-2);
+      font-size: 12px;
+      padding: 5px 14px;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+    }
+    .battle-toggle:hover {
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--text-1);
+    }
+    .battle-narration {
+      display: none;
+      margin: 14px 0 0;
+      padding: 16px;
+      background: rgba(0, 0, 0, 0.32);
+      border-radius: 12px;
+      color: var(--text-2);
+      font-size: 12.5px;
+      white-space: pre-wrap;
+      line-height: 1.65;
+      font-family: -apple-system, BlinkMacSystemFont, "PingFang SC",
+                   "Helvetica Neue", "Microsoft YaHei", monospace;
+      overflow-x: auto;
+    }
+    .battle-card.expanded .battle-narration { display: block; }
+
+    .footer {
+      margin-top: 36px;
+      text-align: center;
+      color: var(--text-3);
+      font-size: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="topbar">
+      <a href="/">← 返回斗兽场首页</a>
+    </div>
+
+    <header class="page-head">
+      <h1>🦞 战斗历史</h1>
+      <p class="meta" id="metaLine">正在拉取最近战绩…</p>
+      <p class="uid" id="uidLine"></p>
+    </header>
+
+    <div id="body">
+      <div class="loading">正在召唤战报…</div>
+    </div>
+
+    <p class="footer">
+      战报每条都包含完整的多回合 narration · 数据来源 /api/battles
+    </p>
+  </div>
+
+  <script>
+    // ============ 工具 ============
+    const $ = (sel) => document.querySelector(sel);
+
+    function escapeHtml(s) {
+      return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function fmtRelativeTime(ts) {
+      const delta = Math.max(0, Math.floor(Date.now() / 1000 - Number(ts || 0)));
+      if (delta < 60) return delta + ' 秒前';
+      if (delta < 3600) return Math.floor(delta / 60) + ' 分钟前';
+      if (delta < 86400) return Math.floor(delta / 3600) + ' 小时前';
+      return Math.floor(delta / 86400) + ' 天前';
+    }
+
+    function getQueryParam(name) {
+      const usp = new URLSearchParams(window.location.search);
+      return usp.get(name);
+    }
+
+    // ============ 渲染单场战斗卡片 ============
+    // viewerUid：当前视角的玩家 uid，用于决定"胜/负"和"vs 对手"的方向
+    function renderBattleCard(b, viewerUid) {
+      const meta = b.rewards_meta || {};
+      const isViewerChallenger = b.challenger_uid === viewerUid;
+      const viewerName = isViewerChallenger
+        ? (meta.challenger_name || '本方')
+        : (meta.opponent_name || '本方');
+      const enemyName = isViewerChallenger
+        ? (meta.opponent_name || '未知对手')
+        : (meta.challenger_name || '未知对手');
+      const viewerWon = b.winner_uid === viewerUid;
+      const endRound = meta.end_round || '?';
+
+      // 标签：upset / clutch 视角反转；PvP 始终标
+      const tags = [];
+      if (b.is_upset) tags.push(viewerWon ? '⚡以下犯上' : '⚡被压制');
+      if (b.is_clutch) tags.push(viewerWon ? '💥残血反杀' : '💥被反杀');
+      let tagsHtml = '';
+      if (tags.length || b.is_pvp) {
+        const chips = tags
+          .map((t) => `<span class="chip">${escapeHtml(t)}</span>`)
+          .join('');
+        const pvpChip = b.is_pvp ? '<span class="chip pvp">PvP</span>' : '';
+        tagsHtml = `<div class="battle-tags">${chips}${pvpChip}</div>`;
+      }
+
+      // 奖励行：只在玩家获胜时展示（败方系统也没给奖励）
+      let rewardsHtml = '';
+      if (viewerWon) {
+        const parts = [];
+        if (meta.exp) parts.push(`经验 +${meta.exp}`);
+        if (meta.coins) parts.push(`金币 +${meta.coins}`);
+        if (meta.fame) parts.push(`名气 +${meta.fame}`);
+        if (parts.length) {
+          rewardsHtml = `<div class="battle-rewards">🎁 ${parts.join(' · ')}</div>`;
+        }
+      }
+
+      return `
+        <article class="battle-card ${viewerWon ? 'win' : 'lose'}">
+          <header class="battle-head">
+            <div class="battle-result">
+              <span class="result-tag">${viewerWon ? '胜' : '负'}</span>
+              <span class="battle-vs">${escapeHtml(viewerName)}<span class="vs-arrow">vs</span>${escapeHtml(enemyName)}</span>
+            </div>
+            <div class="battle-meta">
+              ${escapeHtml(String(endRound))} 回合<br/>${escapeHtml(fmtRelativeTime(b.ts))}
+            </div>
+          </header>
+          ${tagsHtml}
+          ${rewardsHtml}
+          <button class="battle-toggle" type="button">完整战报 ▼</button>
+          <pre class="battle-narration">${escapeHtml(b.narration || '(无战报)')}</pre>
+        </article>
+      `;
+    }
+
+    // ============ 启动 ============
+    async function boot() {
+      const userId = getQueryParam('user_id');
+      const limit = parseInt(getQueryParam('limit') || '20', 10) || 20;
+
+      if (!userId) {
+        $('#body').innerHTML =
+          '<div class="error">⚠️ 缺少 user_id 参数。<br/>正确用法：/battles?user_id=&lt;龙虾的 user_id&gt;</div>';
+        $('#metaLine').textContent = '未指定查询对象';
+        return;
+      }
+
+      // 显示 uid（截断版，避免太长撑爆头部）
+      const uidDisplay = userId.length > 48 ? userId.slice(0, 48) + '…' : userId;
+      $('#uidLine').textContent = 'user_id: ' + uidDisplay;
+
+      try {
+        const resp = await fetch(
+          `/api/battles?user_id=${encodeURIComponent(userId)}&limit=${limit}`
+        );
+        if (!resp.ok) {
+          const detail = await resp.text();
+          throw new Error(detail || `HTTP ${resp.status}`);
+        }
+        const battles = await resp.json();
+
+        if (!battles.length) {
+          $('#metaLine').textContent = '0 场战斗记录';
+          $('#body').innerHTML =
+            '<div class="empty">这位还没下场过。<br/>等它打第一场吧。</div>';
+          return;
+        }
+
+        // 取第一条的元数据来给页头加个名字
+        const firstMeta = battles[0].rewards_meta || {};
+        const isChallenger = battles[0].challenger_uid === userId;
+        const myName = isChallenger
+          ? firstMeta.challenger_name
+          : firstMeta.opponent_name;
+        if (myName) {
+          document.title = `${myName} · 战斗历史 · 龙虾斗兽场`;
+          $('.page-head h1').textContent = `🦞 ${myName} · 战斗历史`;
+        }
+        $('#metaLine').textContent = `最近 ${battles.length} 场战斗 · 点「完整战报」展开多回合详情`;
+
+        $('#body').innerHTML = battles
+          .map((b) => renderBattleCard(b, userId))
+          .join('');
+
+        // 用事件委托给所有 toggle 按钮绑展开/收起
+        $('#body').addEventListener('click', (e) => {
+          const btn = e.target.closest('.battle-toggle');
+          if (!btn) return;
+          const card = btn.closest('.battle-card');
+          if (!card) return;
+          card.classList.toggle('expanded');
+          btn.textContent = card.classList.contains('expanded')
+            ? '收起 ▲'
+            : '完整战报 ▼';
+        });
+      } catch (err) {
+        console.error('battles 拉取失败', err);
+        $('#metaLine').textContent = '拉取失败';
+        $('#body').innerHTML =
+          '<div class="error">拉取失败：' + escapeHtml(err.message) + '</div>';
+      }
+    }
+
+    boot();
+  </script>
+</body>
+</html>

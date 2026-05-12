@@ -11,9 +11,10 @@ from __future__ import annotations
 import logging
 import random
 import time
-from typing import Dict
+from typing import Dict, List
 
 from .. import content
+from ..persistence import dao
 from . import battle, factory, render, shop
 from .lobster import Lobster
 
@@ -100,7 +101,35 @@ def handle_battle(lobster: Lobster) -> str:
     result = battle.simulate(lobster, opponent)
     extras = battle.apply_result_to_player(lobster, opponent, result)
     lobster.last_action_at["battle"] = time.time()
-    return result.narration + extras
+    full_narration = result.narration + extras
+
+    # Phase 6: 战斗历史落 battles 表（PvP=False，因为当前只走 wild）。
+    # 入库失败按用户规则 fail-fast：直接抛，让上层 ai_handler 报错暴露问题，
+    # 但 lobster 自身的属性变化已经应用（不会回滚）。
+    rewards_meta = {
+        **result.rewards,
+        "challenger_name": lobster.name,
+        "opponent_name": opponent.name,
+        "winner_name": result.winner.name,
+        "loser_name": result.loser.name,
+        "end_round": result.end_round,
+    }
+    dao.save_battle_sync(
+        challenger_uid=lobster.user_id,
+        opponent_uid=opponent.user_id,
+        winner_uid=result.winner.user_id,
+        narration=full_narration,
+        rewards_meta=rewards_meta,
+        is_pvp=False,
+        is_clutch=result.is_clutch,
+        is_upset=result.is_upset,
+    )
+    logger.info(
+        "handle_battle: 战斗历史落库 uid=%s winner=%s end_round=%d",
+        lobster.user_id[:8], result.winner.name, result.end_round,
+    )
+
+    return full_narration
 
 
 # ===== 排行榜 / 帮助 =====
@@ -178,3 +207,116 @@ def handle_upgrade_skill(lobster: Lobster, skill_name: str) -> str:
 def handle_show_loadout(lobster: Lobster) -> str:
     """查看装备 + 技能等级面板。"""
     return shop.render_loadout(lobster)
+
+
+# ===== Phase 6 查询：战斗历史 + 查别人龙虾 =====
+
+
+# 微信侧消息长度上限较低（实测 600-800 字符就开始截断），
+# 因此战斗历史 / 查别人龙虾的工具返回必须精简——前端走 /api/battles 拿完整 narration。
+_BATTLE_HISTORY_LIMIT = 5
+
+
+def _fmt_relative_time(ts: float) -> str:
+    """把战斗时间戳压成精简的相对时间标签（如 3m / 2h / 1d）。"""
+    delta = max(0, int(time.time() - ts))
+    if delta < 60:
+        return f"{delta}s前"
+    if delta < 3600:
+        return f"{delta // 60}m前"
+    if delta < 86400:
+        return f"{delta // 3600}h前"
+    return f"{delta // 86400}d前"
+
+
+def handle_battle_history(lobster: Lobster, limit: int = _BATTLE_HISTORY_LIMIT) -> str:
+    """返回自己最近 N 场战斗的精简一行摘要（每行 ~30 字以内，方便微信展示）。"""
+    limit = max(1, min(int(limit or _BATTLE_HISTORY_LIMIT), 10))
+    rows = dao.load_battles_for_user_sync(lobster.user_id, limit)
+    if not rows:
+        return "还没打过架。先去【挑战】一场，回来再翻战绩。"
+
+    lines = [f"【🥊 最近 {len(rows)} 场战绩】"]
+    for idx, row in enumerate(rows, start=1):
+        meta = row.get("rewards_meta") or {}
+        opp_name = (
+            meta.get("opponent_name")
+            if row["challenger_uid"] == lobster.user_id
+            else meta.get("challenger_name")
+        ) or "未知对手"
+        winner_uid = row["winner_uid"]
+        win = winner_uid == lobster.user_id
+        verb = "击败" if win else "不敌"
+        tags: List[str] = []
+        if row["is_upset"]:
+            tags.append("⚡以下犯上" if win else "⚡被压制")
+        if row["is_clutch"]:
+            tags.append("💥残血反杀" if win else "💥被反杀")
+        if row["is_pvp"]:
+            tags.append("PvP")
+        end_round = int(meta.get("end_round") or 0)
+        round_part = f"·{end_round}回合" if end_round else ""
+        tag_part = ("·" + "·".join(tags)) if tags else ""
+        lines.append(
+            f"{idx}. {_fmt_relative_time(row['ts'])} {verb} {opp_name}{round_part}{tag_part}"
+        )
+    lines.append("（详情看 web：" + content.SHARE_URL + "）")
+    return "\n".join(lines)
+
+
+def _find_lobster_by_name(all_lobsters: Dict[str, Lobster], name: str) -> Lobster:
+    """按名字精确匹配；同名时取等级最高的那一只，并在文案中提示。
+
+    匹配范围：当前内存里所有 lobsters（含人机），不含临时野生（它们不入 state）。
+    """
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("要查谁？请告诉我龙虾的名字，例如「查 麻辣战神」")
+    hits = [l for l in all_lobsters.values() if l.name == name]
+    if not hits:
+        raise ValueError(f"没找到叫「{name}」的龙虾。可能是名字打错了，或对方还没上场。")
+    if len(hits) > 1:
+        hits.sort(key=lambda l: (l.level, l.fame, l.wins), reverse=True)
+        logger.info(
+            "_find_lobster_by_name: 同名 %d 只，取等级最高的 uid=%s",
+            len(hits), hits[0].user_id[:8],
+        )
+    return hits[0]
+
+
+def handle_query_lobster(all_lobsters: Dict[str, Lobster], name: str) -> str:
+    """查别人龙虾的公开信息（属性 / 技能 / 战绩 / 心情 / 流派）。
+
+    刻意不返回 token / user_id / last_pvp_targets 等隐私字段。
+    微信侧消息精简：限制 7-8 行内。
+    """
+    target = _find_lobster_by_name(all_lobsters, name)
+    rank = render.compute_rank(target, all_lobsters)
+
+    skills_str = "、".join(target.skills) if target.skills else "（无）"
+    titles_str = "、".join(target.titles[-3:]) if target.titles else "（无）"
+
+    dist = shop.faction_distribution(target)
+    syn_school, syn_tier = shop.synergy_tier(dist)
+    has_anything = any(v > 0 for v in dist.values())
+    syn_tag = f"（{syn_school}×{syn_tier} 协同）" if syn_tier >= 2 else ""
+    faction_line = (
+        f"🧬 流派：{shop.faction_short_label(dist)}{syn_tag}"
+        if has_anything else ""
+    )
+
+    parts = [
+        "━━━━━━━━━━━━━━━━",
+        f"🦞 {target.name}  Lv.{target.level}",
+        "━━━━━━━━━━━━━━━━",
+        f"🥊 钳 {target.claw}  🛡 壳 {target.shell}  💨 速 {target.speed}",
+        f"🔋 耐 {target.stamina}  🍀 运 {target.luck}  ❤️ {target.morale_label_short()}",
+    ]
+    if faction_line:
+        parts.append(faction_line)
+    parts.append(f"📜 技能：{skills_str}")
+    parts.append(f"🏷️ 称号：{titles_str}")
+    parts.append(
+        f"📈 战绩：{target.wins}胜{target.losses}负 · ⭐{target.fame} · 📊 #{rank}"
+    )
+    return "\n".join(parts)

@@ -510,6 +510,27 @@ async def feed_endpoint(limit: int = 20) -> List[Dict[str, Any]]:
     return list(reversed(items))
 
 
+@app.get("/api/battles")
+async def battles_endpoint(user_id: str, limit: int = 20) -> List[Dict[str, Any]]:
+    """某个玩家参与过（作为挑战者或对手）的最近 N 场战斗，**含完整 narration**。
+
+    Phase 6：前端做战报详情页用。微信侧不要直接读这个接口（数据量大），
+    走 get_battle_history 工具拿精简摘要。
+
+    返回字段：
+    - id / ts / 标志位（is_pvp / is_clutch / is_upset）
+    - challenger_uid / opponent_uid / winner_uid
+    - rewards_meta（含双方名字 / 胜方名字 / 结束回合 / exp / coins / fame）
+    - narration（完整多回合战报字符串）
+    """
+    if not user_id:
+        raise HTTPException(status_code=400, detail="user_id 不能为空")
+    limit = max(1, min(int(limit), 100))
+    rows = await storage.load_battles_for_user(user_id, limit=limit)
+    logger.info("/api/battles uid=%s 返回 %d 场", user_id[:8], len(rows))
+    return rows
+
+
 @app.get("/api/stats")
 async def stats() -> Dict[str, Any]:
     """大盘统计。
@@ -546,6 +567,16 @@ STATIC_DIR = Path(__file__).resolve().parent.parent.parent / "static"
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse(STATIC_DIR / "index.html")
+
+
+@app.get("/battles")
+async def battles_page() -> FileResponse:
+    """Phase 6 战斗历史详情页（独立页面）。
+
+    通过 /battles?user_id=<uid>&limit=20 访问，前端 JS 自行从 query string
+    读取 user_id 并调 /api/battles 拉数据。不和主页面关联，也不暴露入口。
+    """
+    return FileResponse(STATIC_DIR / "battles.html")
 
 
 app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")

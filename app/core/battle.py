@@ -272,7 +272,11 @@ def _build_state(lobster: Lobster, opponent: Lobster, side: str) -> Tuple[Battle
 
 @dataclass
 class BattleResult:
-    """单场对战的结构化结果（与 Phase 4 之前兼容）。"""
+    """单场对战的结构化结果（与 Phase 4 之前兼容）。
+
+    Phase 6 新增 `end_round`：供 actions 落 battles 表 / 微信侧战绩摘要使用，
+    免去再次正则解析 narration "（第 N 回合）" 的脆弱。
+    """
 
     winner: Lobster
     loser: Lobster
@@ -283,6 +287,7 @@ class BattleResult:
     narration: str
     rewards: Dict[str, int]
     consolation: str
+    end_round: int = 0     # 结束于第几回合（含 timeout 判负 / 时间到剩血判负）
 
 
 # ============ 战斗主流程 ============
@@ -434,6 +439,7 @@ def simulate(player: Lobster, opponent: Lobster) -> BattleResult:
         narration="\n".join(lines),
         rewards=rewards,
         consolation=consolation,
+        end_round=end_round,
     )
 
 

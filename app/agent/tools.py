@@ -168,6 +168,29 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
         logger.info("tool[show_loadout] uid=%s", user_id[:8])
         return actions.handle_show_loadout(lobster)
 
+    def _battle_history(limit_str: str = "") -> str:
+        """读出自己最近 N 场战绩（默认 5 场）。仅微信侧精简文本，详情走前端 web。"""
+        lobster = _ensure_lobster(state, user_id)
+        limit = 5
+        try:
+            if limit_str and limit_str.strip():
+                limit = int(limit_str.strip())
+        except ValueError:
+            logger.warning("tool[battle_history] uid=%s 非法 limit=%r 用默认 5", user_id[:8], limit_str)
+        result = actions.handle_battle_history(lobster, limit)
+        logger.info("tool[battle_history] uid=%s limit=%d", user_id[:8], limit)
+        return result
+
+    def _query_other(name: str = "") -> str:
+        """查别人的龙虾公开信息（属性/技能/战绩/流派）。参数 = 对方龙虾名字。"""
+        try:
+            result = actions.handle_query_lobster(state.lobsters, name)
+            logger.info("tool[query_other] uid=%s name=%s", user_id[:8], name)
+            return result
+        except ValueError as exc:
+            logger.warning("tool[query_other] uid=%s name=%s 失败: %s", user_id[:8], name, exc)
+            return f"⚠️ {exc}"
+
     return [
         Tool(
             name="get_lobster_status",
@@ -290,6 +313,28 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
             description=(
                 "查看自己当前的装备、技能等级与道具背包。"
                 "玩家说「我的装备」「装备面板」「背包」「我学了啥技能」时调用。"
+            ),
+        ),
+        Tool(
+            name="get_battle_history",
+            func=_battle_history,
+            description=(
+                "查看自己最近 N 场战斗的精简战绩（默认 5 场，最多 10 场）。"
+                "玩家说「最近战绩」「最近打了啥」「战斗历史」「上一场赢了吗」时调用。"
+                "参数 = 想看的场数（可省略，留空就用默认 5）。"
+                "返回的每行只是简短摘要（对手/胜负/回合数/标签），"
+                "完整战报详情走前端 web 页面，AI 不要试图复述整场战报。"
+            ),
+        ),
+        Tool(
+            name="query_other_lobster",
+            func=_query_other,
+            description=(
+                "查别人龙虾的公开信息：属性、技能、战绩、流派、称号、当前名气排名。"
+                "玩家说「查 XXX」「XX 啥水平」「XX 几级」「他叫什么名字」（带名字时）时调用。"
+                "参数 = 对方龙虾的中文名（精确匹配）。"
+                "返回 ⚠️ 开头表示没找到，如实复述给玩家、提醒可能名字打错或对方还没上场。"
+                "**不会**返回对方的金币 / 道具 / 装备 / token——这是隐私字段。"
             ),
         ),
     ]
