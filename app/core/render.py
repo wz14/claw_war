@@ -19,6 +19,7 @@ import logging
 from typing import TYPE_CHECKING, Dict
 
 from .. import content
+from . import shop
 
 if TYPE_CHECKING:
     from .lobster import Lobster
@@ -57,7 +58,7 @@ def compute_rank(lobster: "Lobster", all_lobsters: Dict[str, "Lobster"]) -> int:
 
 
 def render_player_card(lobster: "Lobster", all_lobsters: Dict[str, "Lobster"]) -> str:
-    """渲染 Phase 2 排版规约定义的玩家页脚。
+    """渲染 Phase 2 排版规约定义的玩家页脚 + Phase 5 流派/装备摘要。
 
     格式（每条消息末尾都附这一段）：
         ━━━━━━━━━━━━━━━━
@@ -66,21 +67,34 @@ def render_player_card(lobster: "Lobster", all_lobsters: Dict[str, "Lobster"]) -
         🥊 钳 7  🛡 壳 5  💨 速 6
         🔋 耐 6  🍀 运 8  ❤️ 心情 良好
 
+        🧬 流派：力量×2 速度×1（×2 协同）
         🎒 金币 28  ⭐ 名气 7  📊 排名 #5
         🔗 https://claw-war-production.up.railway.app/
+
+    流派行：
+    - 综合"已习得技能 + 当前装备"统计；玩家没装备/没技能时不显示这行
+    - ×2 / ×3 协同会在末尾用括号标注，引导玩家继续往同流派堆
     """
     rank = compute_rank(lobster, all_lobsters)
-    return (
-        f"{DIVIDER}\n"
-        f"🦞 {lobster.name}  Lv.{lobster.level}\n"
-        f"{DIVIDER}\n"
-        f"🥊 钳 {lobster.claw}  🛡 壳 {lobster.shell}  💨 速 {lobster.speed}\n"
+    dist = shop.faction_distribution(lobster)
+    syn_school, syn_tier = shop.synergy_tier(dist)
+    has_anything = any(v > 0 for v in dist.values())
+
+    lines = [
+        DIVIDER,
+        f"🦞 {lobster.name}  Lv.{lobster.level}",
+        DIVIDER,
+        f"🥊 钳 {lobster.claw}  🛡 壳 {lobster.shell}  💨 速 {lobster.speed}",
         f"🔋 耐 {lobster.stamina}  🍀 运 {lobster.luck}  "
-        f"❤️ 心情 {lobster.morale_label_short()}\n"
-        f"\n"
-        f"🎒 金币 {lobster.coins}  ⭐ 名气 {lobster.fame}  📊 排名 #{rank}\n"
-        f"🔗 {SHARE_URL}"
-    )
+        f"❤️ 心情 {lobster.morale_label_short()}",
+        "",
+    ]
+    if has_anything:
+        syn_tag = f"（{syn_school}×{syn_tier} 协同）" if syn_tier >= 2 else ""
+        lines.append(f"🧬 流派：{shop.faction_short_label(dist)}{syn_tag}")
+    lines.append(f"🎒 金币 {lobster.coins}  ⭐ 名气 {lobster.fame}  📊 排名 #{rank}")
+    lines.append(f"🔗 {SHARE_URL}")
+    return "\n".join(lines)
 
 
 def render_share_line() -> str:

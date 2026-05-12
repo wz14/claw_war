@@ -6,6 +6,9 @@
 - Tool 的 docstring = AI 看到的工具描述。写得短、明确、不啰嗦。
 - Tool 内部直接调 actions.handle_* 拿"游戏判定结果"原文，
   AI 收到之后只负责复述/点评/戏剧化包装，不能改胜负。
+
+Phase 5：新增 6 个商店 / 装备 / 升级工具。
+所有 ValueError 由这一层 catch 并回 AI 友好文案（不让 AI 看到 stack trace）。
 """
 
 from __future__ import annotations
@@ -104,6 +107,67 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
         """读出帮助菜单：玩家不知道怎么玩、或问菜单/命令时调用。"""
         return content.HELP_TEXT
 
+    def _open_shop(kind: str = "weapon") -> str:
+        """打开商店面板。kind 可选：weapon / item / skill（默认 weapon）。"""
+        lobster = _ensure_lobster(state, user_id)
+        try:
+            result = actions.handle_open_shop(lobster, kind)
+            logger.info("tool[open_shop] uid=%s kind=%s", user_id[:8], kind)
+            return result
+        except ValueError as exc:
+            logger.warning("tool[open_shop] uid=%s 失败: %s", user_id[:8], exc)
+            return f"⚠️ {exc}"
+
+    def _buy(name_or_id: str = "") -> str:
+        """购买商店里的武器或道具。参数 = 商品中文名（推荐）或英文 id。"""
+        lobster = _ensure_lobster(state, user_id)
+        try:
+            result = actions.handle_buy(lobster, name_or_id)
+            logger.info("tool[buy] uid=%s name=%s -> %s", user_id[:8], name_or_id, result[:60])
+            return result
+        except (ValueError, KeyError) as exc:
+            logger.warning("tool[buy] uid=%s name=%s 失败: %s", user_id[:8], name_or_id, exc)
+            return f"⚠️ {exc}"
+
+    def _equip(name: str = "") -> str:
+        """把背包里的武器装到对应槽位。参数 = 武器中文名。"""
+        lobster = _ensure_lobster(state, user_id)
+        try:
+            result = actions.handle_equip(lobster, name)
+            logger.info("tool[equip] uid=%s name=%s", user_id[:8], name)
+            return result
+        except (ValueError, KeyError) as exc:
+            logger.warning("tool[equip] uid=%s name=%s 失败: %s", user_id[:8], name, exc)
+            return f"⚠️ {exc}"
+
+    def _unequip(slot: str = "") -> str:
+        """卸下某个槽位的装备。槽位 = 主钳/副钳/背甲/鞋。"""
+        lobster = _ensure_lobster(state, user_id)
+        try:
+            result = actions.handle_unequip(lobster, slot)
+            logger.info("tool[unequip] uid=%s slot=%s", user_id[:8], slot)
+            return result
+        except (ValueError, KeyError) as exc:
+            logger.warning("tool[unequip] uid=%s slot=%s 失败: %s", user_id[:8], slot, exc)
+            return f"⚠️ {exc}"
+
+    def _upgrade_skill(skill_name: str = "") -> str:
+        """升级已习得的技能。参数 = 技能中文名。"""
+        lobster = _ensure_lobster(state, user_id)
+        try:
+            result = actions.handle_upgrade_skill(lobster, skill_name)
+            logger.info("tool[upgrade_skill] uid=%s skill=%s", user_id[:8], skill_name)
+            return result
+        except (ValueError, KeyError) as exc:
+            logger.warning("tool[upgrade_skill] uid=%s skill=%s 失败: %s", user_id[:8], skill_name, exc)
+            return f"⚠️ {exc}"
+
+    def _show_loadout(_query: str = "") -> str:
+        """读出当前装备 + 技能等级 + 道具背包。"""
+        lobster = _ensure_lobster(state, user_id)
+        logger.info("tool[show_loadout] uid=%s", user_id[:8])
+        return actions.handle_show_loadout(lobster)
+
     return [
         Tool(
             name="get_lobster_status",
@@ -173,6 +237,59 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
             description=(
                 "返回玩法菜单。玩家说「帮助」「菜单」「怎么玩」「指令」时调用，"
                 "或者你判断玩家迷茫时也可以主动调。"
+            ),
+        ),
+        Tool(
+            name="open_shop",
+            func=_open_shop,
+            description=(
+                "打开商店货架（每 2 小时全服刷新一次）。参数 kind ∈ "
+                "{weapon, item, skill}：weapon=武器装备，item=战前道具，skill=技能升级。"
+                "玩家说「商店」「逛街」「看看货」「看武器」「看道具」「看技能」时调用，"
+                "不带方向时默认 weapon。"
+            ),
+        ),
+        Tool(
+            name="buy_item",
+            func=_buy,
+            description=(
+                "购买武器或道具。传入商品中文名（如「牙签长矛」「啤酒能量瓶」）。"
+                "玩家说「买 XXX」「入手 XXX」时调用。"
+                "返回 ⚠️ 开头的文本表示失败（金币不足/等级不够/不在货架等），如实复述。"
+            ),
+        ),
+        Tool(
+            name="equip_item",
+            func=_equip,
+            description=(
+                "把背包里的某件武器装到对应槽位。传入武器中文名。"
+                "玩家说「装备 XXX」「上 XXX」「换上 XXX」时调用。"
+                "同槽旧装备会自动退回背包。"
+            ),
+        ),
+        Tool(
+            name="unequip_slot",
+            func=_unequip,
+            description=(
+                "卸下某个槽位的装备。槽位中文：主钳 / 副钳 / 背甲 / 鞋。"
+                "玩家说「卸下 主钳」「不要鞋」时调用。"
+            ),
+        ),
+        Tool(
+            name="upgrade_skill",
+            func=_upgrade_skill,
+            description=(
+                "用金币升级已习得的技能（最高 Lv.3）。传入技能中文名。"
+                "玩家说「升级 蒜蓉觉醒」「精进 横着走」时调用。"
+                "玩家未习得的技能不能升级，会返回 ⚠️ 提示。"
+            ),
+        ),
+        Tool(
+            name="show_loadout",
+            func=_show_loadout,
+            description=(
+                "查看自己当前的装备、技能等级与道具背包。"
+                "玩家说「我的装备」「装备面板」「背包」「我学了啥技能」时调用。"
             ),
         ),
     ]

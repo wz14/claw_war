@@ -2,6 +2,8 @@
 
 这一层依然保证「胜负 / 数值变化」的判定权在系统手里，AI 没法绕过；
 它只能"说"，不能"判"。
+
+Phase 5 新增动作族：商店 / 购买 / 装备 / 卸下 / 技能升级 / 查看装备面板。
 """
 
 from __future__ import annotations
@@ -12,7 +14,7 @@ import time
 from typing import Dict
 
 from .. import content
-from . import battle, factory, render
+from . import battle, factory, render, shop
 from .lobster import Lobster
 
 logger = logging.getLogger(__name__)
@@ -124,3 +126,55 @@ def handle_leaderboard(all_lobsters: Dict[str, Lobster]) -> str:
 
 def handle_help() -> str:
     return content.HELP_TEXT
+
+
+# ===== 商店 / 装备 / 技能升级（Phase 5）=====
+
+
+def handle_open_shop(lobster: Lobster, kind: str) -> str:
+    """打开商店面板。kind ∈ {weapon, item, skill}。
+
+    每 2 小时全服刷新一次（同一时刻所有玩家看到的 catalog 相同）。
+    """
+    kind = (kind or "weapon").strip().lower()
+    if kind in ("weapon", "weapons", "武器"):
+        return shop.render_weapons_shop(lobster)
+    if kind in ("item", "items", "道具"):
+        return shop.render_items_shop(lobster)
+    if kind in ("skill", "skills", "技能"):
+        return shop.render_skill_shop(lobster)
+    raise ValueError(f"商店分类「{kind}」不存在，可选：weapon / item / skill")
+
+
+def handle_buy(lobster: Lobster, name_or_id: str) -> str:
+    """购买商品。校验失败抛 ValueError，由上层转成 AI 文案。"""
+    name_or_id = (name_or_id or "").strip()
+    if not name_or_id:
+        raise ValueError("买什么？请告诉我商品名，例如「买 牙签长矛」")
+    return shop.buy(lobster, name_or_id)
+
+
+def handle_equip(lobster: Lobster, name: str) -> str:
+    name = (name or "").strip()
+    if not name:
+        raise ValueError("装备什么？请告诉我商品名，例如「装备 牙签长矛」")
+    return shop.equip(lobster, name)
+
+
+def handle_unequip(lobster: Lobster, slot: str) -> str:
+    slot = (slot or "").strip()
+    if not slot:
+        raise ValueError("要卸下哪个槽位？可选：主钳 / 副钳 / 背甲 / 鞋")
+    return shop.unequip(lobster, slot)
+
+
+def handle_upgrade_skill(lobster: Lobster, skill_name: str) -> str:
+    skill_name = (skill_name or "").strip()
+    if not skill_name:
+        raise ValueError("升级哪个技能？例如「升级 蒜蓉觉醒」")
+    return shop.upgrade_skill(lobster, skill_name)
+
+
+def handle_show_loadout(lobster: Lobster) -> str:
+    """查看装备 + 技能等级面板。"""
+    return shop.render_loadout(lobster)
