@@ -11,12 +11,16 @@ from __future__ import annotations
 import logging
 import random
 import time
-from typing import Dict, List
+from typing import TYPE_CHECKING, Dict, List
 
 from .. import content
+from ..content import boss_catalog
 from ..persistence import dao
-from . import battle, factory, render, shop
+from . import battle, factory, pvp, render, shop
 from .lobster import Lobster
+
+if TYPE_CHECKING:
+    from ..api.main import AppState
 
 logger = logging.getLogger(__name__)
 
@@ -136,10 +140,15 @@ def handle_battle(lobster: Lobster) -> str:
 
 
 def handle_leaderboard(all_lobsters: Dict[str, Lobster]) -> str:
-    if not all_lobsters:
+    """全平台名气榜 TOP10，仅含玩家（排除 BOSS）。
+
+    BOSS 不是玩家，不进榜单；普通 bot 在玩家视角即玩家，照常入榜。
+    """
+    eligible = [l for l in all_lobsters.values() if l.bot_kind != "boss"]
+    if not eligible:
         return "排行榜空空如也。第一只龙虾就是你的位置，冲。"
     sorted_list = sorted(
-        all_lobsters.values(),
+        eligible,
         key=lambda l: (l.fame, l.wins, l.level),
         reverse=True,
     )[:10]
@@ -316,7 +325,135 @@ def handle_query_lobster(all_lobsters: Dict[str, Lobster], name: str) -> str:
         parts.append(faction_line)
     parts.append(f"📜 技能：{skills_str}")
     parts.append(f"🏷️ 称号：{titles_str}")
+    rank_text = "👑 BOSS" if target.bot_kind == "boss" else f"📊 #{rank}"
     parts.append(
-        f"📈 战绩：{target.wins}胜{target.losses}负 · ⭐{target.fame} · 📊 #{rank}"
+        f"📈 战绩：{target.wins}胜{target.losses}负 · ⭐{target.fame} · {rank_text}"
+    )
+    return "\n".join(parts)
+
+
+# ===== PvP（Phase 4：随机 / 指定 / boss + 真人推送通知） =====
+
+
+def handle_pvp_random(state: "AppState", challenger: Lobster) -> str:
+    """随机 PvP：从玩家池随机抽一只对手（不含 BOSS）。
+
+    玩家视角下，bot 与真人无差别——这里也不区分。
+    冷却复用 lobster.in_cooldown("battle")（与 vs Wild 共用），
+    避免玩家钻空子用 PvP 跳过普通战斗冷却刷战绩。
+    """
+    remain = challenger.in_cooldown("battle")
+    if remain is not None:
+        return _cooldown_text(remain, "对战")
+    opponent = pvp.select_random_opponent(state.lobsters, challenger)
+    narration = pvp.execute_pvp(
+        state, challenger, opponent,
+        is_boss=False, source_label="random",
+    )
+    challenger.last_action_at["battle"] = time.time()
+    return narration
+
+
+def handle_pvp_specific(state: "AppState", challenger: Lobster, target_name: str) -> str:
+    """指定真人/bot 名字 PvP（不含 boss——boss 走 handle_pvp_boss）。
+
+    校验顺序：
+    1. 名字非空
+    2. 名字精确匹配；同名取等级最高
+    3. 不能挑战自己（find_lobster_by_name 内部用 exclude_uid 过滤）
+    4. 不允许借此入口挑 boss（避免绕过 challenge_boss 的引导）
+    5. 30 分钟频控（execute_pvp 内部 assert）
+    """
+    remain = challenger.in_cooldown("battle")
+    if remain is not None:
+        return _cooldown_text(remain, "对战")
+    target_name = (target_name or "").strip()
+    if not target_name:
+        raise ValueError("挑战谁？请告诉我对方龙虾的名字，例如「挑战 蒜蓉暴君」")
+    opponent = pvp.find_lobster_by_name(
+        state.lobsters, target_name, exclude_uid=challenger.user_id,
+    )
+    if opponent.bot_kind == "boss":
+        raise ValueError(
+            f"「{opponent.name}」是 BOSS，请用「挑战 BOSS {opponent.name}」专门入口"
+        )
+    narration = pvp.execute_pvp(
+        state, challenger, opponent,
+        is_boss=False, source_label="specific",
+    )
+    challenger.last_action_at["battle"] = time.time()
+    return narration
+
+
+def handle_pvp_boss(state: "AppState", challenger: Lobster, boss_name: str) -> str:
+    """挑战 boss：从 boss_catalog 预设里挑一只。
+
+    boss 战不受 PvP 频控限制（玩家可反复刷），但仍走 battle 动作冷却，
+    避免玩家用 boss 战代替普通战斗冷却刷战绩。
+    """
+    remain = challenger.in_cooldown("battle")
+    if remain is not None:
+        return _cooldown_text(remain, "BOSS 战")
+    boss = pvp.find_boss(state.lobsters, boss_name)
+    narration = pvp.execute_pvp(
+        state, challenger, boss,
+        is_boss=True, source_label="boss",
+    )
+    challenger.last_action_at["battle"] = time.time()
+    return narration
+
+
+# list_active_players 渲染上限（与 pvp.ACTIVE_PLAYERS_DISPLAY_LIMIT 同步）
+_ACTIVE_PLAYERS_DISPLAY_LIMIT = pvp.ACTIVE_PLAYERS_DISPLAY_LIMIT
+
+
+def handle_list_active_players(state: "AppState", self_uid: str) -> str:
+    """读出可挑战的玩家名单（按名气倒序）+ 全部 BOSS 名单。
+
+    Phase 4 修订：玩家视角下 bot 即玩家，列表里不再区分真人 / bot。
+    展示策略：
+    - 玩家：所有 bot_kind != "boss" 且 uid != self_uid，按 (fame, wins, level) 降序
+    - BOSS：所有 bot_kind == "boss"，按 level 升序（让玩家从弱开始打）
+    """
+    players = [
+        l for uid, l in state.lobsters.items()
+        if l.bot_kind != "boss" and uid != self_uid
+    ]
+    players.sort(key=lambda l: (l.fame, l.wins, l.level), reverse=True)
+    player_lines = [
+        f"▸ {l.name}  Lv.{l.level}  ⭐{l.fame}  {l.wins}胜{l.losses}负"
+        for l in players[:_ACTIVE_PLAYERS_DISPLAY_LIMIT]
+    ]
+
+    boss_lines: List[str] = []
+    for spec in boss_catalog.BOSSES:
+        uid = boss_catalog.boss_user_id(spec["id"])
+        l = state.lobsters.get(uid)
+        if l is None:
+            continue
+        boss_lines.append(
+            f"👑 {l.name}  Lv.{l.level}  [{spec['tagline']}]"
+        )
+
+    parts: List[str] = []
+    parts.append("━━━━━━━━━━━━━━━━")
+    parts.append("⚔️ 当前可挑战名单")
+    parts.append("━━━━━━━━━━━━━━━━")
+    if player_lines:
+        parts.append(f"🧑 玩家（按名气排序，共 {len(players)} 位）：")
+        parts.extend(player_lines)
+        if len(players) > _ACTIVE_PLAYERS_DISPLAY_LIMIT:
+            parts.append(
+                f"   …还有 {len(players) - _ACTIVE_PLAYERS_DISPLAY_LIMIT} 位未列出"
+            )
+    else:
+        parts.append("🧑 玩家：暂无（你是这片水域里第一只虾）")
+    parts.append("———")
+    if boss_lines:
+        parts.append("👑 BOSS 龙虾（独立挑战，奖励翻倍）：")
+        parts.extend(boss_lines)
+    parts.append("———")
+    parts.append(
+        "发「随机挑战」走玩家池；发「挑战 名字」指定挑战；发「挑战 BOSS 名字」打 boss"
     )
     return "\n".join(parts)

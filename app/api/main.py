@@ -115,6 +115,9 @@ class AppState:
     ai: Optional[AIHandler] = None
     # Phase 3：种子人机维护任务（启动后常驻；shutdown 时 cancel）
     bot_maintenance_task: Optional[asyncio.Task] = None
+    # Phase 4：缓存主 event loop 引用，给 sync tool 回调推送 PvP 通知用
+    # （LangChain sync tool 跑在 thread executor，不能直接 asyncio.create_task）
+    main_loop: Optional[asyncio.AbstractEventLoop] = None
 
 
 STATE = AppState()
@@ -344,6 +347,10 @@ async def _qr_status_task(sid: str) -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("启动龙虾斗兽场...")
+    # Step 0: 缓存主 event loop 引用（PvP 通知从 sync tool 投递回主 loop 时要用）
+    STATE.main_loop = asyncio.get_running_loop()
+    logger.info("启动: 主 event loop 已缓存 id=%s", id(STATE.main_loop))
+
     # Step 1: 初始化 SQLite + 一次性迁移 JSON（幂等）
     db.init_db()
     migration_result = await migration.maybe_migrate_json_to_sqlite()
@@ -388,6 +395,15 @@ async def lifespan(app: FastAPI):
         bot_manager.bot_maintenance_loop(STATE),
         name="bot_maintenance_loop",
     )
+
+    # Step 8: 注入 boss 龙虾（Phase 4 PvP / 挑战 boss 入口）
+    # 必须在 _load_initial 之后跑，让预设覆盖 SQLite 里可能存在的旧 boss 副本
+    try:
+        injected = await bot_manager.ensure_bosses(STATE)
+        logger.info("启动: ensure_bosses 注入 %d 只 boss", injected)
+    except Exception as exc:
+        logger.error("启动: ensure_bosses 失败: %s", exc, exc_info=True)
+        raise
 
     yield
 
@@ -479,9 +495,14 @@ async def qr_image(sid: str) -> Response:
 
 @app.get("/api/leaderboard")
 async def leaderboard() -> List[Dict[str, Any]]:
-    """全平台龙虾名气榜。"""
+    """全平台龙虾名气榜。
+
+    Phase 4：BOSS（bot_kind="boss"）不是玩家，不进玩家榜单；普通 bot 玩家视角即玩家，照常入榜。
+    `is_bot` 字段保留输出（前端 / 调试用），但不暴露 bot_kind。
+    """
+    eligible = [l for l in STATE.lobsters.values() if l.bot_kind != "boss"]
     sorted_list = sorted(
-        STATE.lobsters.values(),
+        eligible,
         key=lambda l: (l.fame, l.wins, l.level),
         reverse=True,
     )[:20]

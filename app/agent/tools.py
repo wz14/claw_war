@@ -191,6 +191,66 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
             logger.warning("tool[query_other] uid=%s name=%s 失败: %s", user_id[:8], name, exc)
             return f"⚠️ {exc}"
 
+    # PvP 三个工具的 feed 入栈在 pvp.execute_pvp 里完成，
+    # 这里只做 ValueError → ⚠️ 文案 + 日志的 wrapper。
+    def _pvp_random(_query: str = "") -> str:
+        """随机 PvP：从在线真人池抽对手；没真人时降级到普通 bot。"""
+        lobster = _ensure_lobster(state, user_id)
+        try:
+            result = actions.handle_pvp_random(state, lobster)
+            logger.info(
+                "tool[pvp_random] uid=%s -> %s",
+                user_id[:8], result.split("\n", 1)[0][:60],
+            )
+            return result
+        except ValueError as exc:
+            logger.warning("tool[pvp_random] uid=%s 失败: %s", user_id[:8], exc)
+            return f"⚠️ {exc}"
+
+    def _pvp_specific(target_name: str = "") -> str:
+        """指定真人/bot 名字 PvP（不能挑 boss，boss 走 challenge_boss）。参数 = 对方名字。"""
+        lobster = _ensure_lobster(state, user_id)
+        try:
+            result = actions.handle_pvp_specific(state, lobster, target_name)
+            logger.info(
+                "tool[pvp_specific] uid=%s target=%s -> %s",
+                user_id[:8], target_name, result.split("\n", 1)[0][:60],
+            )
+            return result
+        except ValueError as exc:
+            logger.warning(
+                "tool[pvp_specific] uid=%s target=%s 失败: %s",
+                user_id[:8], target_name, exc,
+            )
+            return f"⚠️ {exc}"
+
+    def _pvp_boss(boss_name: str = "") -> str:
+        """挑战预设 BOSS 龙虾。参数 = boss 中文名（如「不锈钢魔王」「霓虹夜行者」「蒜蓉帝王」）。"""
+        lobster = _ensure_lobster(state, user_id)
+        try:
+            result = actions.handle_pvp_boss(state, lobster, boss_name)
+            logger.info(
+                "tool[pvp_boss] uid=%s boss=%s -> %s",
+                user_id[:8], boss_name, result.split("\n", 1)[0][:60],
+            )
+            return result
+        except ValueError as exc:
+            logger.warning(
+                "tool[pvp_boss] uid=%s boss=%s 失败: %s",
+                user_id[:8], boss_name, exc,
+            )
+            return f"⚠️ {exc}"
+
+    def _list_players(_query: str = "") -> str:
+        """读出当前可挑战的真人 / boss 名单。"""
+        try:
+            result = actions.handle_list_active_players(state, user_id)
+            logger.info("tool[list_players] uid=%s", user_id[:8])
+            return result
+        except Exception as exc:
+            logger.warning("tool[list_players] uid=%s 失败: %s", user_id[:8], exc)
+            return f"⚠️ {exc}"
+
     return [
         Tool(
             name="get_lobster_status",
@@ -335,6 +395,47 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
                 "参数 = 对方龙虾的中文名（精确匹配）。"
                 "返回 ⚠️ 开头表示没找到，如实复述给玩家、提醒可能名字打错或对方还没上场。"
                 "**不会**返回对方的金币 / 道具 / 装备 / token——这是隐私字段。"
+            ),
+        ),
+        Tool(
+            name="pvp_random",
+            func=_pvp_random,
+            description=(
+                "随机 PvP：从全平台玩家池随机抽一只挑战（不含 BOSS）。"
+                "玩家说「随机挑战」「随机 PK」「随便来一场」「随机找个玩家打」时调用。"
+                "和普通挑战共用同一个冷却（避免刷战绩）。同一对手 30 分钟最多打 1 次。"
+                "战报里若包含「📨 已通知对手」表示对手当前在线、已收到挑战通知。"
+            ),
+        ),
+        Tool(
+            name="challenge_player",
+            func=_pvp_specific,
+            description=(
+                "指定名字挑战另一名玩家（不含 BOSS——BOSS 用 challenge_boss）。"
+                "玩家说「挑战 蒜蓉暴君」「跟 麻辣战神 PK」「打 XXX」时调用。"
+                "参数 = 对方龙虾的中文名（精确匹配）。同一对手 30 分钟最多打 1 次。"
+                "返回 ⚠️ 开头表示找不到 / 是 BOSS / 频控未过 / 自己挑自己，原样转述给玩家并指出原因。"
+            ),
+        ),
+        Tool(
+            name="challenge_boss",
+            func=_pvp_boss,
+            description=(
+                "挑战预设的 BOSS 龙虾（参数固定的强敌副本，难度高、奖励翻倍）。"
+                "玩家说「挑战 BOSS XXX」「打 boss XXX」「来一场 boss 战」时调用。"
+                "参数 = boss 中文名（如「不锈钢魔王」「霓虹夜行者」「蒜蓉帝王」）。"
+                "BOSS 战不受 30 分钟频控，但仍走 battle 动作冷却。胜利会额外加金币 + 名气。"
+                "BOSS 不算玩家——不出现在玩家排行榜，也不会被随机 PvP 抽到。"
+                "玩家不知道有哪些 boss 时，先调 list_active_players 把名单给他。"
+            ),
+        ),
+        Tool(
+            name="list_active_players",
+            func=_list_players,
+            description=(
+                "列出当前可挑战的玩家（按名气排序）+ 全部 BOSS 龙虾名单。"
+                "玩家说「列玩家」「在线玩家」「谁能打」「有哪些 boss」「打谁」时调用。"
+                "返回包含每只龙虾的等级 / 名气 / 战绩 / BOSS 简介，不含装备等隐私字段。"
             ),
         ),
     ]

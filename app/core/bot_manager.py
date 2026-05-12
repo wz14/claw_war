@@ -18,6 +18,7 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, List
 
+from ..content import boss_catalog
 from ..persistence import dao
 from . import factory
 from .lobster import Lobster
@@ -100,6 +101,53 @@ async def daily_add_bots(state: "AppState", count: int = DAILY_ADD_COUNT) -> int
         await dao.save_lobster(bot.user_id, bot.to_dict())
     logger.info("bot_manager: 每日新增完成")
     return count
+
+
+async def ensure_bosses(state: "AppState") -> int:
+    """把 boss_catalog 里所有 boss 注入 STATE.lobsters + 落 SQLite。返回入库数量。
+
+    Phase 4 设计：
+    - 每次启动都用 catalog 覆盖（boss 属性以预设为准；wins/losses 战绩固定不动）
+    - boss 不会被 PvP 战斗结果回填（handle_pvp_boss 里只 apply 玩家侧）
+    - boss 进 STATE.lobsters，与普通 bot 一并被 leaderboard / compute_rank 看到
+    - user_id 命名空间：boss-<id>（区别于 seed-/ wild- / 真人 user_id）
+
+    不写隐式 fallback：技能名 / 装备 id 写错时 Lobster 构造直接抛，启动期暴露问题。
+    """
+    created = 0
+    for spec in boss_catalog.BOSSES:
+        uid = boss_catalog.boss_user_id(spec["id"])
+        boss = Lobster(
+            user_id=uid,
+            name=spec["name"],
+            breed=spec["breed"],
+            personality=spec["personality"],
+            level=int(spec["level"]),
+            claw=int(spec["claw"]),
+            shell=int(spec["shell"]),
+            speed=int(spec["speed"]),
+            stamina=int(spec["stamina"]),
+            luck=int(spec["luck"]),
+            morale=int(spec.get("morale", 80)),
+            fame=int(spec.get("fame", 0)),
+            wins=int(spec.get("wins", 0)),
+            losses=int(spec.get("losses", 0)),
+            skills=list(spec.get("skills", [])),
+            skill_levels=dict(spec.get("skill_levels", {})),
+            equipped=dict(spec.get("equipped", {})),
+            titles=list(spec.get("titles", [])),
+            is_bot=True,
+            bot_kind="boss",
+        )
+        state.lobsters[uid] = boss
+        await dao.save_lobster(uid, boss.to_dict())
+        created += 1
+        logger.info(
+            "bot_manager.ensure_bosses: boss=%s(L%d) uid=%s 入库",
+            boss.name, boss.level, uid,
+        )
+    logger.info("bot_manager.ensure_bosses: 共注入 %d 只 boss", created)
+    return created
 
 
 async def bot_maintenance_loop(state: "AppState") -> None:

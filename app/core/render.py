@@ -47,14 +47,19 @@ def battle_history_url(user_id: str) -> str:
 
 
 def compute_rank(lobster: "Lobster", all_lobsters: Dict[str, "Lobster"]) -> int:
-    """按 (fame, wins, level) 倒序计算 lobster 在全榜中的排名（1-based）。
+    """按 (fame, wins, level) 倒序计算 lobster 在玩家榜中的排名（1-based）。
 
-    Phase 3 决策：人机龙虾（is_bot=True）和真人玩家**同样参与排名**，
-    玩家视角看不出 bot / 真人区别。这样 leaderboard 也热闹、新人有目标可追。
+    Phase 4 修订：BOSS（bot_kind="boss"）**不算玩家**，不参与玩家排名。
+    传入 BOSS 时直接返回 0（含义"无排名"，调用方自行决定如何展示）。
+    普通 bot 在玩家视角与真人无区别，照常参与排名。
+
     如果 lobster 不在 all_lobsters 里（兜底防御），返回总数 + 1。
     """
+    if lobster.bot_kind == "boss":
+        return 0
+    eligible = [l for l in all_lobsters.values() if l.bot_kind != "boss"]
     sorted_list = sorted(
-        all_lobsters.values(),
+        eligible,
         key=lambda l: (l.fame, l.wins, l.level),
         reverse=True,
     )
@@ -62,7 +67,7 @@ def compute_rank(lobster: "Lobster", all_lobsters: Dict[str, "Lobster"]) -> int:
         if l.user_id == lobster.user_id:
             return idx
     logger.warning(
-        "compute_rank: lobster %s 不在 all_lobsters 里，返回兜底 rank",
+        "compute_rank: lobster %s 不在玩家榜，返回兜底 rank",
         lobster.user_id[:8],
     )
     return len(sorted_list) + 1
