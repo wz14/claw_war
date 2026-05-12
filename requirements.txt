@@ -19,3 +19,7 @@ python-dotenv>=1.0.1
 langchain>=0.3.7
 langchain-openai>=0.2.8
 langgraph>=0.2.50
+
+# 错误监控：未捕获异常 + logger.error 自动上报到 Sentry
+# 通过 SENTRY_DSN 环境变量启用；不配就跳过初始化（本地开发友好）
+sentry-sdk[fastapi]>=2.20.0

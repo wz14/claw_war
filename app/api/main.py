@@ -85,6 +85,40 @@ logger = logging.getLogger(__name__)
 logger.info("logging configured: level=%s", _log_level_name)
 
 
+# === Sentry 错误上报 ===
+# 通过环境变量 SENTRY_DSN 启用；缺失则跳过（本地开发可不配，集成测试也不会上报噪音）。
+# 默认行为（来自 sentry_sdk LoggingIntegration）：
+#   - 所有未捕获的异常 → 自动上报为 Sentry event
+#   - logger.error / logger.exception → 上报为 Sentry event
+#   - logger.info / warning → 作为 breadcrumb 附在下一个 event 里
+# 关性能监控（traces_sample_rate=0.0）：免费档 transactions 额度小，先只用错误监控。
+_sentry_dsn = os.environ.get("SENTRY_DSN", "").strip()
+if _sentry_dsn:
+    import sentry_sdk
+
+    _sentry_env = os.environ.get("RAILWAY_ENVIRONMENT_NAME") or os.environ.get(
+        "RAILWAY_ENVIRONMENT", "local",
+    )
+    _sentry_release = (
+        os.environ.get("RAILWAY_GIT_COMMIT_SHA")
+        or os.environ.get("RAILWAY_DEPLOYMENT_ID")
+        or "dev"
+    )
+    sentry_sdk.init(
+        dsn=_sentry_dsn,
+        environment=_sentry_env,
+        release=_sentry_release[:12],
+        send_default_pii=True,
+        traces_sample_rate=0.0,
+    )
+    logger.info(
+        "sentry: 已初始化 env=%s release=%s",
+        _sentry_env, _sentry_release[:8],
+    )
+else:
+    logger.info("sentry: 未配置 SENTRY_DSN，跳过初始化")
+
+
 # ============ 全局状态 ============
 
 
