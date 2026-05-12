@@ -9,6 +9,14 @@
 
 Phase 5：新增 6 个商店 / 装备 / 升级工具。
 所有 ValueError 由这一层 catch 并回 AI 友好文案（不让 AI 看到 stack trace）。
+
+历史问题修复（2026-05）：
+- 之前用 langchain_core.tools.Tool（single-input 工具），新模型
+  （deepseek-v4-flash 等）以 OpenAI tools schema 调用时会塞 `arguments={}`，
+  被 LangChain 解包成 `Args: []` → 直接抛
+  `Too many arguments to single-input tool`。
+- 全部切换到 StructuredTool.from_function，会按函数签名自动生成 args schema，
+  无参工具就是空 schema，新模型再传空 args 也不会报错。
 """
 
 from __future__ import annotations
@@ -16,7 +24,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, List
 
-from langchain_core.tools import Tool
+from langchain_core.tools import StructuredTool
 
 from .. import content
 from ..core import actions, factory
@@ -38,51 +46,51 @@ def _ensure_lobster(state: "AppState", user_id: str) -> Lobster:
     return lobster
 
 
-def build_tools(state: "AppState", user_id: str) -> List[Tool]:
+def build_tools(state: "AppState", user_id: str) -> List[StructuredTool]:
     """为某个玩家构造一套绑定好 user_id 的工具集。"""
 
-    def _status(_query: str = "") -> str:
+    def _status() -> str:
         """读出玩家当前龙虾的状态：等级、6 项属性、心情、金币、名气、当前排名。"""
         lobster = _ensure_lobster(state, user_id)
         logger.info("tool[status] uid=%s name=%s", user_id[:8], lobster.name)
         return actions.handle_status(lobster, state.lobsters)
 
-    def _train(_query: str = "") -> str:
+    def _train() -> str:
         """让龙虾去训练。会随机加 钳力/速度/壳硬/耐力，偶尔掉心情，有冷却。"""
         lobster = _ensure_lobster(state, user_id)
         result = actions.handle_train(lobster)
         logger.info("tool[train] uid=%s -> %s", user_id[:8], result[:50])
         return result
 
-    def _feed(_query: str = "") -> str:
+    def _feed() -> str:
         """喂食。加心情和耐力，偶尔吃错东西出戏剧效果。有冷却。"""
         lobster = _ensure_lobster(state, user_id)
         result = actions.handle_feed(lobster)
         logger.info("tool[feed] uid=%s -> %s", user_id[:8], result[:50])
         return result
 
-    def _explore(_query: str = "") -> str:
+    def _explore() -> str:
         """出门探险。高随机度：可能拿到金币、名气，甚至习得新技能。有冷却。"""
         lobster = _ensure_lobster(state, user_id)
         result = actions.handle_explore(lobster)
         logger.info("tool[explore] uid=%s -> %s", user_id[:8], result[:50])
         return result
 
-    def _rest(_query: str = "") -> str:
+    def _rest() -> str:
         """让龙虾休息。恢复心情和少量耐力。注意：连续休息太多次会被嘲笑。"""
         lobster = _ensure_lobster(state, user_id)
         result = actions.handle_rest(lobster)
         logger.info("tool[rest] uid=%s -> %s", user_id[:8], result[:50])
         return result
 
-    def _work(_query: str = "") -> str:
+    def _work() -> str:
         """打工赚金币。代价是心情或耐力下降。有冷却。"""
         lobster = _ensure_lobster(state, user_id)
         result = actions.handle_work(lobster)
         logger.info("tool[work] uid=%s -> %s", user_id[:8], result[:50])
         return result
 
-    def _battle(_query: str = "") -> str:
+    def _battle() -> str:
         """发起对战。系统会匹配一只野生龙虾并由规则判定胜负，
         返回完整文字战报和奖励/惩罚结果。AI 不能改胜负，只能复述+点评。
         有较长冷却。"""
@@ -98,12 +106,12 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
             })
         return result
 
-    def _leaderboard(_query: str = "") -> str:
+    def _leaderboard() -> str:
         """读出全平台龙虾名气榜 Top 10。"""
         logger.info("tool[leaderboard] uid=%s", user_id[:8])
         return actions.handle_leaderboard(state.lobsters)
 
-    def _help(_query: str = "") -> str:
+    def _help() -> str:
         """读出帮助菜单：玩家不知道怎么玩、或问菜单/命令时调用。"""
         return content.HELP_TEXT
 
@@ -162,7 +170,7 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
             logger.warning("tool[upgrade_skill] uid=%s skill=%s 失败: %s", user_id[:8], skill_name, exc)
             return f"⚠️ {exc}"
 
-    def _show_loadout(_query: str = "") -> str:
+    def _show_loadout() -> str:
         """读出当前装备 + 技能等级 + 道具背包。"""
         lobster = _ensure_lobster(state, user_id)
         logger.info("tool[show_loadout] uid=%s", user_id[:8])
@@ -193,7 +201,7 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
 
     # PvP 三个工具的 feed 入栈在 pvp.execute_pvp 里完成，
     # 这里只做 ValueError → ⚠️ 文案 + 日志的 wrapper。
-    def _pvp_random(_query: str = "") -> str:
+    def _pvp_random() -> str:
         """随机 PvP：从在线真人池抽对手；没真人时降级到普通 bot。"""
         lobster = _ensure_lobster(state, user_id)
         try:
@@ -241,7 +249,7 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
             )
             return f"⚠️ {exc}"
 
-    def _list_players(_query: str = "") -> str:
+    def _list_players() -> str:
         """读出当前可挑战的真人 / boss 名单。"""
         try:
             result = actions.handle_list_active_players(state, user_id)
@@ -252,7 +260,7 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
             return f"⚠️ {exc}"
 
     return [
-        Tool(
+        StructuredTool.from_function(
             name="get_lobster_status",
             func=_status,
             description=(
@@ -260,7 +268,7 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
                 "玩家问「我的龙虾」「状态」「面板」「我现在多少血」「龙虾啥样了」时调用。"
             ),
         ),
-        Tool(
+        StructuredTool.from_function(
             name="train_lobster",
             func=_train,
             description=(
@@ -268,14 +276,14 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
                 "玩家说「训练」「练一下」「练功」「带它去举铁」时调用。"
             ),
         ),
-        Tool(
+        StructuredTool.from_function(
             name="feed_lobster",
             func=_feed,
             description=(
                 "给玩家的龙虾喂食。玩家说「喂」「投喂」「吃饭」「给点好吃的」时调用。"
             ),
         ),
-        Tool(
+        StructuredTool.from_function(
             name="explore",
             func=_explore,
             description=(
@@ -283,21 +291,21 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
                 "玩家说「探险」「冒险」「出门走走」「溜达」时调用。"
             ),
         ),
-        Tool(
+        StructuredTool.from_function(
             name="rest",
             func=_rest,
             description=(
                 "让龙虾休息恢复心情。玩家说「休息」「睡觉」「躺平」「歇会儿」时调用。"
             ),
         ),
-        Tool(
+        StructuredTool.from_function(
             name="work",
             func=_work,
             description=(
                 "让龙虾去打工赚金币。玩家说「打工」「上班」「搬砖」「赚钱」时调用。"
             ),
         ),
-        Tool(
+        StructuredTool.from_function(
             name="battle",
             func=_battle,
             description=(
@@ -306,7 +314,7 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
                 "战报的胜负是规则判定，你必须如实复述，不能反转。"
             ),
         ),
-        Tool(
+        StructuredTool.from_function(
             name="get_leaderboard",
             func=_leaderboard,
             description=(
@@ -314,7 +322,7 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
                 "玩家说「排行榜」「榜单」「谁最强」「我第几名」时调用。"
             ),
         ),
-        Tool(
+        StructuredTool.from_function(
             name="get_help",
             func=_help,
             description=(
@@ -322,7 +330,7 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
                 "或者你判断玩家迷茫时也可以主动调。"
             ),
         ),
-        Tool(
+        StructuredTool.from_function(
             name="open_shop",
             func=_open_shop,
             description=(
@@ -332,7 +340,7 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
                 "不带方向时默认 weapon。"
             ),
         ),
-        Tool(
+        StructuredTool.from_function(
             name="buy_item",
             func=_buy,
             description=(
@@ -341,7 +349,7 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
                 "返回 ⚠️ 开头的文本表示失败（金币不足/等级不够/不在货架等），如实复述。"
             ),
         ),
-        Tool(
+        StructuredTool.from_function(
             name="equip_item",
             func=_equip,
             description=(
@@ -350,7 +358,7 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
                 "同槽旧装备会自动退回背包。"
             ),
         ),
-        Tool(
+        StructuredTool.from_function(
             name="unequip_slot",
             func=_unequip,
             description=(
@@ -358,7 +366,7 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
                 "玩家说「卸下 主钳」「不要鞋」时调用。"
             ),
         ),
-        Tool(
+        StructuredTool.from_function(
             name="upgrade_skill",
             func=_upgrade_skill,
             description=(
@@ -367,7 +375,7 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
                 "玩家未习得的技能不能升级，会返回 ⚠️ 提示。"
             ),
         ),
-        Tool(
+        StructuredTool.from_function(
             name="show_loadout",
             func=_show_loadout,
             description=(
@@ -375,7 +383,7 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
                 "玩家说「我的装备」「装备面板」「背包」「我学了啥技能」时调用。"
             ),
         ),
-        Tool(
+        StructuredTool.from_function(
             name="get_battle_history",
             func=_battle_history,
             description=(
@@ -386,7 +394,7 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
                 "完整战报详情走前端 web 页面，AI 不要试图复述整场战报。"
             ),
         ),
-        Tool(
+        StructuredTool.from_function(
             name="query_other_lobster",
             func=_query_other,
             description=(
@@ -397,7 +405,7 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
                 "**不会**返回对方的金币 / 道具 / 装备 / token——这是隐私字段。"
             ),
         ),
-        Tool(
+        StructuredTool.from_function(
             name="pvp_random",
             func=_pvp_random,
             description=(
@@ -407,7 +415,7 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
                 "战报里若包含「📨 已通知对手」表示对手当前在线、已收到挑战通知。"
             ),
         ),
-        Tool(
+        StructuredTool.from_function(
             name="challenge_player",
             func=_pvp_specific,
             description=(
@@ -417,7 +425,7 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
                 "返回 ⚠️ 开头表示找不到 / 是 BOSS / 频控未过 / 自己挑自己，原样转述给玩家并指出原因。"
             ),
         ),
-        Tool(
+        StructuredTool.from_function(
             name="challenge_boss",
             func=_pvp_boss,
             description=(
@@ -429,7 +437,7 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
                 "玩家不知道有哪些 boss 时，先调 list_active_players 把名单给他。"
             ),
         ),
-        Tool(
+        StructuredTool.from_function(
             name="list_active_players",
             func=_list_players,
             description=(

@@ -32,6 +32,7 @@ import logging
 import os
 import random
 import secrets
+import sys
 import time
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -61,12 +62,17 @@ from ..persistence import db, migration, storage
 # 会吞掉所有 INFO，导致 inbound / tool 调用 / send_text 全部不可见，bug 无从定位。
 # 这里强制 basicConfig 让 INFO 起步、并使用 force=True 覆盖 uvicorn 已建好的 handler。
 # 通过 LOG_LEVEL 环境变量可调整（默认 INFO）。
+#
+# 注意：basicConfig 默认 StreamHandler 写 sys.stderr，而 Railway 把容器 stderr
+# 整行视为 error 级别 → 会把所有 INFO 染红，按级别筛日志彻底失效。
+# 这里显式把日志输出绑定到 sys.stdout，让 Railway 按真实级别上色 / 过滤。
 _log_level_name = os.environ.get("LOG_LEVEL", "INFO").upper()
 _log_level = getattr(logging, _log_level_name, logging.INFO)
 logging.basicConfig(
     level=_log_level,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
+    stream=sys.stdout,
     force=True,
 )
 # 第三方库太吵的话单独压一压（保留 WARNING+）
