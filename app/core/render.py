@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 from typing import TYPE_CHECKING, Dict
+from urllib.parse import quote
 
 from .. import content
 from . import shop
@@ -33,6 +34,16 @@ SHARE_URL = content.SHARE_URL
 
 # 玩家 card 的视觉分隔线。用 ━ 而非 - / = 是因为微信里 ━ 显示宽度更稳
 DIVIDER = "━━━━━━━━━━━━━━━━"
+
+
+def battle_history_url(user_id: str) -> str:
+    """生成玩家个人战报详情页 URL（Phase 6 战报页）。
+
+    user_id 里可能含 `@` `.` 等 query 边界字符，统一 quote 一遍最稳；
+    SHARE_URL 末尾可能有 `/`，rstrip 一下避免 //battles 这种丑写法。
+    """
+    encoded = quote(user_id, safe="")
+    return f"{SHARE_URL.rstrip('/')}/battles?user_id={encoded}"
 
 
 def compute_rank(lobster: "Lobster", all_lobsters: Dict[str, "Lobster"]) -> int:
@@ -69,7 +80,7 @@ def render_player_card(lobster: "Lobster", all_lobsters: Dict[str, "Lobster"]) -
 
         🧬 流派：力量×2 速度×1（×2 协同）
         🎒 金币 28  ⭐ 名气 7  📊 排名 #5
-        🔗 https://claw-war-production.up.railway.app/
+        🔗 我的战报：https://claw-war-production.up.railway.app/battles?user_id=xxxx
 
     流派行：
     - 综合"已习得技能 + 当前装备"统计；玩家没装备/没技能时不显示这行
@@ -93,7 +104,9 @@ def render_player_card(lobster: "Lobster", all_lobsters: Dict[str, "Lobster"]) -
         syn_tag = f"（{syn_school}×{syn_tier} 协同）" if syn_tier >= 2 else ""
         lines.append(f"🧬 流派：{shop.faction_short_label(dist)}{syn_tag}")
     lines.append(f"🎒 金币 {lobster.coins}  ⭐ 名气 {lobster.fame}  📊 排名 #{rank}")
-    lines.append(f"🔗 {SHARE_URL}")
+    # Phase 6：玩家 card 末尾从全站分享链接改成"专属战报详情页"，
+    # 点进去就能看到这只龙虾完整的多回合战报历史
+    lines.append(f"🔗 我的战报：{battle_history_url(lobster.user_id)}")
     return "\n".join(lines)
 
 
