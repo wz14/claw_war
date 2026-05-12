@@ -4,30 +4,32 @@
 - ❗每次会话动态 build 一套 tool，并把 user_id 通过 closure 锁死。
   这样模型没法靠 prompt 注入「帮我用别人的 id 训练」之类。
 - Tool 的 docstring = AI 看到的工具描述。写得短、明确、不啰嗦。
-- Tool 内部直接调 handlers.handle_* 拿"游戏判定结果"原文，
+- Tool 内部直接调 actions.handle_* 拿"游戏判定结果"原文，
   AI 收到之后只负责复述/点评/戏剧化包装，不能改胜负。
 """
 
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Callable, List
+from typing import TYPE_CHECKING, List
 
 from langchain_core.tools import Tool
 
-from . import content, game, handlers
+from .. import content
+from ..core import actions, factory
+from ..core.lobster import Lobster
 
 if TYPE_CHECKING:
-    from .main import AppState
+    from ..api.main import AppState
 
 logger = logging.getLogger(__name__)
 
 
-def _ensure_lobster(state: "AppState", user_id: str) -> game.Lobster:
+def _ensure_lobster(state: "AppState", user_id: str) -> Lobster:
     """拿到当前玩家的龙虾；没创建过就现造一只。"""
     lobster = state.lobsters.get(user_id)
     if lobster is None:
-        lobster = game.create_lobster(user_id=user_id)
+        lobster = factory.create_lobster(user_id=user_id)
         state.lobsters[user_id] = lobster
         logger.info("tools: 为新玩家 %s 创建龙虾 %s", user_id[:8], lobster.name)
     return lobster
@@ -40,40 +42,40 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
         """读出玩家当前龙虾的完整状态：等级、属性、技能、战绩、心情。"""
         lobster = _ensure_lobster(state, user_id)
         logger.info("tool[status] uid=%s name=%s", user_id[:8], lobster.name)
-        return handlers.handle_status(lobster)
+        return actions.handle_status(lobster)
 
     def _train(_query: str = "") -> str:
         """让龙虾去训练。会随机加 钳力/速度/壳硬/耐力，偶尔掉心情，有冷却。"""
         lobster = _ensure_lobster(state, user_id)
-        result = handlers.handle_train(lobster)
+        result = actions.handle_train(lobster)
         logger.info("tool[train] uid=%s -> %s", user_id[:8], result[:50])
         return result
 
     def _feed(_query: str = "") -> str:
         """喂食。加心情和耐力，偶尔吃错东西出戏剧效果。有冷却。"""
         lobster = _ensure_lobster(state, user_id)
-        result = handlers.handle_feed(lobster)
+        result = actions.handle_feed(lobster)
         logger.info("tool[feed] uid=%s -> %s", user_id[:8], result[:50])
         return result
 
     def _explore(_query: str = "") -> str:
         """出门探险。高随机度：可能拿到金币、名气，甚至习得新技能。有冷却。"""
         lobster = _ensure_lobster(state, user_id)
-        result = handlers.handle_explore(lobster)
+        result = actions.handle_explore(lobster)
         logger.info("tool[explore] uid=%s -> %s", user_id[:8], result[:50])
         return result
 
     def _rest(_query: str = "") -> str:
         """让龙虾休息。恢复心情和少量耐力。注意：连续休息太多次会被嘲笑。"""
         lobster = _ensure_lobster(state, user_id)
-        result = handlers.handle_rest(lobster)
+        result = actions.handle_rest(lobster)
         logger.info("tool[rest] uid=%s -> %s", user_id[:8], result[:50])
         return result
 
     def _work(_query: str = "") -> str:
         """打工赚金币。代价是心情或耐力下降。有冷却。"""
         lobster = _ensure_lobster(state, user_id)
-        result = handlers.handle_work(lobster)
+        result = actions.handle_work(lobster)
         logger.info("tool[work] uid=%s -> %s", user_id[:8], result[:50])
         return result
 
@@ -82,9 +84,8 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
         返回完整文字战报和奖励/惩罚结果。AI 不能改胜负，只能复述+点评。
         有较长冷却。"""
         lobster = _ensure_lobster(state, user_id)
-        result = handlers.handle_battle(lobster)
+        result = actions.handle_battle(lobster)
         logger.info("tool[battle] uid=%s -> %s", user_id[:8], result.split('\n')[0][:60])
-        # 战报也要进 feed 流，前端实时显示
         if "胜者：" in result:
             import time as _t
             state.feed.append({
@@ -97,13 +98,12 @@ def build_tools(state: "AppState", user_id: str) -> List[Tool]:
     def _leaderboard(_query: str = "") -> str:
         """读出全平台龙虾名气榜 Top 10。"""
         logger.info("tool[leaderboard] uid=%s", user_id[:8])
-        return handlers.handle_leaderboard(state.lobsters)
+        return actions.handle_leaderboard(state.lobsters)
 
     def _help(_query: str = "") -> str:
         """读出帮助菜单：玩家不知道怎么玩、或问菜单/命令时调用。"""
         return content.HELP_TEXT
 
-    # 注意：每个 Tool 的 description 是 AI 决策依据，要把"什么时候用"写明白
     return [
         Tool(
             name="get_lobster_status",

@@ -1,12 +1,7 @@
-"""底层动作执行函数。
+"""底层动作执行函数（被 agent.tools 包装成 LangChain Tool 调用）。
 
-设计变更：
-- 命令路由（parse_command / dispatch）已经被 LangChain agent 取代，整个文件
-  现在只剩「动作的实际效果」函数。每个函数：
-  - 入参：Lobster（以及一些上下文，比如全榜单）
-  - 出参：可读的中文动作描述（包含数值变化），交给上层 AI 主持人继续戏剧化
-
-- 这一层依然保证「胜负 / 数值变化」的判定权，AI 没法绕过；它只能"说"，不能"判"。
+这一层依然保证「胜负 / 数值变化」的判定权在系统手里，AI 没法绕过；
+它只能"说"，不能"判"。
 """
 
 from __future__ import annotations
@@ -16,7 +11,9 @@ import random
 import time
 from typing import Dict
 
-from . import battle, content, game
+from .. import content
+from . import battle, factory
+from .lobster import Lobster
 
 logger = logging.getLogger(__name__)
 
@@ -33,14 +30,14 @@ def _cooldown_text(seconds: int, action_cn: str) -> str:
 # ===== 状态查看 =====
 
 
-def handle_status(lobster: game.Lobster) -> str:
+def handle_status(lobster: Lobster) -> str:
     return lobster.stats_summary()
 
 
 # ===== 养成动作 =====
 
 
-def handle_train(lobster: game.Lobster) -> str:
+def handle_train(lobster: Lobster) -> str:
     remain = lobster.in_cooldown("train")
     if remain is not None:
         return _cooldown_text(remain, "训练")
@@ -51,7 +48,7 @@ def handle_train(lobster: game.Lobster) -> str:
     return f"🥊【训练】{lobster.name}{desc}\n变化：{change}{extras}{title_msg}"
 
 
-def handle_feed(lobster: game.Lobster) -> str:
+def handle_feed(lobster: Lobster) -> str:
     remain = lobster.in_cooldown("feed")
     if remain is not None:
         return _cooldown_text(remain, "喂食")
@@ -59,7 +56,7 @@ def handle_feed(lobster: game.Lobster) -> str:
     return f"🥩【喂食】{lobster.name}{desc}\n变化：{change}"
 
 
-def handle_explore(lobster: game.Lobster) -> str:
+def handle_explore(lobster: Lobster) -> str:
     remain = lobster.in_cooldown("explore")
     if remain is not None:
         return _cooldown_text(remain, "探险")
@@ -67,7 +64,7 @@ def handle_explore(lobster: game.Lobster) -> str:
     return f"🧭【探险】{lobster.name}{desc}\n变化：{change}"
 
 
-def handle_rest(lobster: game.Lobster) -> str:
+def handle_rest(lobster: Lobster) -> str:
     remain = lobster.in_cooldown("rest")
     if remain is not None:
         return _cooldown_text(remain, "休息")
@@ -78,7 +75,7 @@ def handle_rest(lobster: game.Lobster) -> str:
     return f"😴【休息】{lobster.name}{desc}\n变化：{change}{suffix}"
 
 
-def handle_work(lobster: game.Lobster) -> str:
+def handle_work(lobster: Lobster) -> str:
     remain = lobster.in_cooldown("work")
     if remain is not None:
         return _cooldown_text(remain, "打工")
@@ -89,11 +86,11 @@ def handle_work(lobster: game.Lobster) -> str:
 # ===== 对战 =====
 
 
-def handle_battle(lobster: game.Lobster) -> str:
+def handle_battle(lobster: Lobster) -> str:
     remain = lobster.in_cooldown("battle")
     if remain is not None:
         return _cooldown_text(remain, "挑战")
-    opponent = game.make_wild_opponent(lobster.level)
+    opponent = factory.make_wild_opponent(lobster.level)
     result = battle.simulate(lobster, opponent)
     extras = battle.apply_result_to_player(lobster, opponent, result)
     lobster.last_action_at["battle"] = time.time()
@@ -103,7 +100,7 @@ def handle_battle(lobster: game.Lobster) -> str:
 # ===== 排行榜 / 帮助 =====
 
 
-def handle_leaderboard(all_lobsters: Dict[str, game.Lobster]) -> str:
+def handle_leaderboard(all_lobsters: Dict[str, Lobster]) -> str:
     if not all_lobsters:
         return "排行榜空空如也。第一只龙虾就是你的位置，冲。"
     sorted_list = sorted(

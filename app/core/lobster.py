@@ -1,10 +1,12 @@
-"""龙虾游戏核心数据结构 + 养成行为。
+"""龙虾数据结构 + 养成行为方法。
 
 设计点：
-- 一只龙虾对应一个 user_id（来自微信 ilink_user_id）
+- 一只龙虾对应一个 user_id（来自微信 ilink_user_id 或者人机的合成 id）
 - 所有属性都是普通整数，便于持久化和判定
-- 行为方法返回 (描述文本, 属性变化 dict)，方便上层拼接消息
+- 行为方法返回 (描述文本, 属性变化文本)，方便上层拼接消息
 - 不写隐式 fallback——非法操作直接抛
+- 新增 is_bot/bot_kind/equipped/inventory/skill_levels/last_pvp_targets 字段
+  为后续 PvP / 商店 / 多回合战斗做准备；旧 JSON 反序列化通过 from_dict 兜底默认值
 """
 
 from __future__ import annotations
@@ -15,7 +17,7 @@ import time
 from dataclasses import dataclass, field, asdict
 from typing import Any, Dict, List, Optional, Tuple
 
-from . import content
+from .. import content
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +37,7 @@ ACTION_COOLDOWN_SECONDS: Dict[str, int] = {
 class Lobster:
     """一只龙虾的完整状态。"""
 
-    user_id: str              # 微信 ilink_user_id
+    user_id: str              # 微信 ilink_user_id 或 bot:<uuid>
     name: str
     breed: str
     personality: str
@@ -78,6 +80,24 @@ class Lobster:
 
     created_at: float = field(default_factory=time.time)
 
+    # ===== Phase 1d 新增字段（PvP / 人机 / 商店 / 多回合战斗的地基）=====
+
+    # 是否为人机龙虾。is_bot=True 的龙虾不会被 PvP 通知，也不会被 daily 淘汰
+    # 流程影响（注意：当前 phase 只是把字段加上，行为接入留给 Phase 3-4）
+    is_bot: bool = False
+    # 人机种类："daily"（每日刷新池）/ "top_clone"（榜首复刻）/ "wild"（兼容老的临时野虾）
+    bot_kind: str = ""
+
+    # 装备槽：slot_name -> item_id，例如 {"claw_aux": "toothpick_spear"}
+    equipped: Dict[str, str] = field(default_factory=dict)
+    # 道具背包：item_id -> count
+    inventory: Dict[str, int] = field(default_factory=dict)
+    # 技能等级：skill_name -> level（默认 1，未升级即不存在）
+    skill_levels: Dict[str, int] = field(default_factory=dict)
+
+    # PvP 频控：target_user_id -> 上次发起战斗的时间戳
+    last_pvp_targets: Dict[str, float] = field(default_factory=dict)
+
     # ===== 序列化 =====
 
     def to_dict(self) -> Dict[str, Any]:
@@ -85,7 +105,14 @@ class Lobster:
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "Lobster":
-        return cls(**data)
+        """容错反序列化：旧 JSON 缺少新字段时用默认值兜底。
+
+        不写隐式 fallback 是指"业务异常路径"，但向后兼容数据迁移这种是必须的：
+        线上 13 只老龙虾的 JSON 没有 is_bot 等字段，硬解会抛 TypeError。
+        """
+        known_fields = {f for f in cls.__dataclass_fields__}  # type: ignore[attr-defined]
+        clean = {k: v for k, v in data.items() if k in known_fields}
+        return cls(**clean)
 
     # ===== 衍生属性 =====
 
@@ -253,7 +280,6 @@ class Lobster:
             return None
         self.exp -= threshold
         self.level += 1
-        # 升级随机加 1-2 点核心属性
         attr = random.choice(["claw", "shell", "speed", "stamina", "luck"])
         bump = random.randint(1, 2)
         setattr(self, attr, getattr(self, attr) + bump)
@@ -283,51 +309,3 @@ class Lobster:
                 newly.append(title)
                 logger.info("lobster %s 获得称号 %s", self.name, title)
         return newly
-
-
-# ============ 工厂方法 ============
-
-
-def random_name() -> str:
-    return random.choice(content.NAME_PREFIXES) + random.choice(content.NAME_SUFFIXES)
-
-
-def create_lobster(user_id: str, name: Optional[str] = None) -> Lobster:
-    """根据 user_id 生成一只随机龙虾。"""
-    final_name = name or random_name()
-    skills = random.sample(content.INITIAL_SKILLS, k=2)
-    # 起手属性轻度随机化
-    lobster = Lobster(
-        user_id=user_id,
-        name=final_name,
-        breed=random.choice(content.BREEDS),
-        personality=random.choice(content.PERSONALITIES),
-        claw=random.randint(4, 8),
-        shell=random.randint(4, 8),
-        speed=random.randint(4, 8),
-        stamina=random.randint(4, 8),
-        luck=random.randint(3, 9),
-        morale=random.randint(60, 85),
-        skills=skills,
-    )
-    logger.info(
-        "create_lobster: name=%s user_id=%s 钳力=%d 速度=%d 技能=%s",
-        lobster.name, user_id[:8], lobster.claw, lobster.speed, skills,
-    )
-    return lobster
-
-
-def make_wild_opponent(player_level: int) -> Lobster:
-    """造一只野生对手，与玩家等级接近。"""
-    # 等级波动 -1 ~ +2
-    opp_level = max(1, player_level + random.randint(-1, 2))
-    opp = create_lobster(user_id=f"wild-{random.randint(10000, 99999)}")
-    opp.level = opp_level
-    # 等级越高数值越好
-    boost = (opp_level - 1) * 1
-    opp.claw += boost
-    opp.shell += boost
-    opp.speed += boost
-    opp.stamina += boost
-    opp._clamp()
-    return opp

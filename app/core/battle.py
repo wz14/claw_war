@@ -4,6 +4,9 @@
 - 胜负完全由规则判定，不让 AI 自由决定（防被 prompt 攻击）
 - AI 只负责文字戏剧化（暂时用模板池随机）
 - 残血反杀 / 高级别击杀 等特殊事件，规则照样判，但战报里会强调
+
+Phase 5 会把这里改成多回合状态机；当前阶段先保留 3 回合实现，
+但在文件位置上已搬到 core/ 子包，便于后续扩展。
 """
 
 from __future__ import annotations
@@ -11,10 +14,10 @@ from __future__ import annotations
 import logging
 import random
 from dataclasses import dataclass
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
-from . import content
-from .game import Lobster
+from .. import content
+from .lobster import Lobster
 
 logger = logging.getLogger(__name__)
 
@@ -74,10 +77,8 @@ def simulate(player: Lobster, opponent: Lobster) -> BattleResult:
     loser = opponent if is_player_win else player
 
     is_upset = winner.level < loser.level
-    # clutch 判定：胜方心情 < 25 视为"残血"
     is_clutch = winner.morale < 25 and abs(p_power - o_power) < 6
 
-    # ===== 拼战报 =====
     lines: List[str] = []
     lines.append("【🦞 龙虾斗兽场 · 战报】")
     lines.append(f"场地：{_pick(content.VENUES)}  天气：{_pick(content.WEATHERS)}")
@@ -91,7 +92,6 @@ def simulate(player: Lobster, opponent: Lobster) -> BattleResult:
     lines.append(_pick(content.OPEN_LINES).format(a=player.name, b=opponent.name))
     lines.append("")
 
-    # 3 回合（行动方交替，命中率受运气微调）
     hit_rate_p = 0.55 + (player.luck - 5) * 0.02
     hit_rate_o = 0.55 + (opponent.luck - 5) * 0.02
     for i in range(1, 4):
@@ -109,7 +109,6 @@ def simulate(player: Lobster, opponent: Lobster) -> BattleResult:
     lines.append(f"📊 战力终值：{player.name} {p_power}  VS  {opponent.name} {o_power}")
     lines.append(f"🏆 胜者：{winner.name}")
 
-    # ===== 奖励 =====
     base_exp = 15 + (loser.level - 1) * 5
     base_coins = 8 + (loser.level - 1) * 3
     base_fame = 3
@@ -157,14 +156,12 @@ def apply_result_to_player(player: Lobster, opponent: Lobster, result: BattleRes
             player.beat_higher_level += 1
         if result.is_clutch:
             player.clutch_wins += 1
-        # 胜利稍微回点士气
         player.morale = min(100, player.morale + 5)
     else:
         player.losses += 1
         player.lose_streak += 1
         player.win_streak = 0
         player.morale = max(0, player.morale - 8)
-        # 给一个最低限度的安慰经验，免得越输越弱
         player.exp += 5
 
     level_msg = player.maybe_level_up()

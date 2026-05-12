@@ -43,6 +43,9 @@ class BotSession:
     # 是否已经发送过欢迎语（介绍玩法的开场白）
     # 扫码确认时会主动发一次，主动发成功置 True；失败则下次玩家入站补发
     welcomed: bool = False
+    # 失活标记：连续 SESSION_EXPIRED_ERRCODE 后自动停 poll，避免无限刷屏
+    dead: bool = False
+    dead_reason: str = ""
 
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -53,6 +56,8 @@ class BotSession:
             "sync_buf": self.sync_buf,
             "context_token": self.context_token,
             "welcomed": self.welcomed,
+            "dead": self.dead,
+            "dead_reason": self.dead_reason,
         }
 
     @classmethod
@@ -65,7 +70,18 @@ class BotSession:
             sync_buf=d.get("sync_buf", ""),
             context_token=d.get("context_token", ""),
             welcomed=bool(d.get("welcomed", False)),
+            dead=bool(d.get("dead", False)),
+            dead_reason=str(d.get("dead_reason", "")),
         )
+
+
+# 长轮询的失活判定阈值
+# 连续命中 errcode=-14 (session timeout) 这么多次就视为这只 bot 凭证已死，
+# 直接停掉它的 poll 循环并打 fatal log。后续要重新认领得用户重新扫码。
+DEAD_SESSION_THRESHOLD_ERRCODE_14 = 5
+
+# 普通错误最大退避秒数（指数退避封顶）
+MAX_BACKOFF_SECONDS = 60
 
 
 class BotPool:
@@ -76,6 +92,15 @@ class BotPool:
         self._inbound_cb = inbound_cb
         self._sessions: Dict[str, BotSession] = {}        # user_id -> session
         self._tasks: Dict[str, asyncio.Task] = {}         # user_id -> poll task
+        # session_died 回调：当某个 session 被判失活时触发，让上层做持久化等收尾
+        # 没注册就什么也不做（不写隐式 fallback：调用方自己决定要不要订阅）
+        self._on_session_died: Optional[Callable[[BotSession], Awaitable[None]]] = None
+
+    def set_on_session_died(
+        self, cb: Callable[[BotSession], Awaitable[None]],
+    ) -> None:
+        """注册 session 失活的收尾回调（持久化、通知等）。"""
+        self._on_session_died = cb
 
     @property
     def sessions(self) -> Dict[str, BotSession]:
@@ -85,12 +110,22 @@ class BotPool:
         return self._sessions.get(user_id)
 
     async def register_and_start(self, session: BotSession) -> None:
-        """登记一个 bot session 并启动它的长轮询循环。"""
+        """登记一个 bot session 并启动它的长轮询循环。
+
+        如果传进来的 session 在持久化里已经被标记为 dead，就只登记不启动 poll，
+        避免一启动就刷一堆 errcode=-14。
+        """
         prev = self._sessions.get(session.user_id)
         if prev is not None:
             logger.info("bot_pool: 替换 user=%s 的旧 session", session.user_id[:8])
             await self.stop(prev.user_id)
         self._sessions[session.user_id] = session
+        if session.dead:
+            logger.warning(
+                "bot_pool: 跳过 dead session bot=%s user=%s reason=%s",
+                session.account_id[:12], session.user_id[:8], session.dead_reason,
+            )
+            return
         task = asyncio.create_task(self._poll_loop(session), name=f"poll-{session.user_id[:8]}")
         self._tasks[session.user_id] = task
         logger.info(
@@ -135,8 +170,11 @@ class BotPool:
         - 收到消息后调用 inbound_cb 处理
         - 把回调返回的回复文本通过 send_text 发回去
         - 顺手刷新 context_token 和 sync_buf
+        - 出现连续 SESSION_EXPIRED_ERRCODE(-14) 多次则判定凭证已死，
+          停掉 poll 并回调 _on_session_died 让上层持久化 dead 状态
         """
         consecutive_failures = 0
+        consecutive_session_expired = 0
         while session.running:
             try:
                 resp = await wx.get_updates(
@@ -149,14 +187,31 @@ class BotPool:
                 errcode = resp.get("errcode", 0)
                 if ret not in (0, None) or errcode not in (0, None):
                     consecutive_failures += 1
+                    if errcode == wx.SESSION_EXPIRED_ERRCODE:
+                        consecutive_session_expired += 1
+                        if consecutive_session_expired >= DEAD_SESSION_THRESHOLD_ERRCODE_14:
+                            await self._mark_dead(
+                                session,
+                                reason=(
+                                    f"连续 {consecutive_session_expired} 次 errcode=-14 "
+                                    f"(session timeout)，bot 凭证已失效"
+                                ),
+                            )
+                            return
+                    else:
+                        # 其它错误清零 expire 计数，但走指数退避
+                        consecutive_session_expired = 0
                     logger.warning(
-                        "bot_pool: %s getUpdates 错误 ret=%s errcode=%s errmsg=%s",
+                        "bot_pool: %s getUpdates 错误 ret=%s errcode=%s errmsg=%s "
+                        "(失败 %d 次, expire %d 次)",
                         session.user_id[:8], ret, errcode, resp.get("errmsg"),
+                        consecutive_failures, consecutive_session_expired,
                     )
-                    await asyncio.sleep(min(30, 2 ** consecutive_failures))
+                    await asyncio.sleep(min(MAX_BACKOFF_SECONDS, 2 ** consecutive_failures))
                     continue
 
                 consecutive_failures = 0
+                consecutive_session_expired = 0
                 new_buf = str(resp.get("get_updates_buf") or "")
                 if new_buf:
                     session.sync_buf = new_buf
@@ -172,7 +227,24 @@ class BotPool:
                     "bot_pool: %s poll loop 异常 (%d): %s",
                     session.user_id[:8], consecutive_failures, exc,
                 )
-                await asyncio.sleep(min(30, 2 ** consecutive_failures))
+                await asyncio.sleep(min(MAX_BACKOFF_SECONDS, 2 ** consecutive_failures))
+
+    async def _mark_dead(self, session: BotSession, *, reason: str) -> None:
+        """把一个 session 标记为失活：停 poll、记录原因、调用收尾回调。"""
+        session.dead = True
+        session.dead_reason = reason
+        session.running = False
+        logger.error(
+            "bot_pool: 🪦 session 失活 bot=%s user=%s 原因: %s",
+            session.account_id[:12], session.user_id[:8], reason,
+        )
+        # 主动从 task 表里清掉，避免 stop_all 时再 cancel 自己
+        self._tasks.pop(session.user_id, None)
+        if self._on_session_died is not None:
+            try:
+                await self._on_session_died(session)
+            except Exception as exc:
+                logger.error("bot_pool: on_session_died 回调异常: %s", exc, exc_info=True)
 
     async def _handle_msg(self, session: BotSession, msg: Dict) -> None:
         sender = str(msg.get("from_user_id") or "").strip()

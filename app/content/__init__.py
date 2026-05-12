@@ -1,9 +1,12 @@
-"""龙虾对战平台的文案/事件模板池。
+"""文案/事件/技能/品种/性格 模板池。
 
 设计原则：
 - 戏剧化、口语化，带点夜市烟火气
 - 所有效果（+1 钳力 / -2 心情）都是写死的数值，便于规则判定
 - AI 暂时用「模板随机抽」实现，黑客松后可平滑替换为 LLM 调用
+
+后续可按职责拆出 names.py / events.py / battle_text.py / ui_text.py，
+当前阶段全部归到 __init__.py 以保持引用稳定。
 """
 
 from __future__ import annotations
@@ -197,7 +200,6 @@ LOSE_CONSOLATION = [
 
 # ============ 称号 ============
 # (称号, 触发条件描述, 判断函数 lambda: lobster -> bool)
-# 在 game.maybe_grant_titles() 里被检查
 TITLES = [
     ("夜市小霸王", "连续赢 3 场", lambda l: l.win_streak >= 3),
     ("预制菜噩梦", "击败高等级对手", lambda l: l.beat_higher_level >= 1),
@@ -218,7 +220,7 @@ EVOLUTION_STAGES = [
     (30, "克苏鲁小龙虾"),
 ]
 
-# ============ 帮助菜单 ============
+# ============ UI 文案 ============
 
 HELP_TEXT = """【🦞 龙虾斗兽场 · 操作手册】
 

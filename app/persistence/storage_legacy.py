@@ -1,6 +1,9 @@
-"""JSON 文件持久化。
+"""旧的 JSON 文件持久化（用于一次性迁移到 SQLite 的输入侧）。
 
-黑客松场景：单文件、整体落盘，配合 asyncio 锁简单串行化。
+Phase 1c 的 migration 脚本会读这里的函数把数据搬进 SQLite，
+搬完后此模块就只剩"读历史 JSON"的用途，新写入路径不再走它。
+
+保留原子写函数仅供"data/legacy/<ts>/" 目录的备份使用。
 """
 
 from __future__ import annotations
@@ -46,12 +49,12 @@ def _read_json(path: Path, default: Any) -> Any:
 async def save_lobsters(lobsters: Dict[str, Dict[str, Any]]) -> None:
     async with _lock:
         _atomic_write(LOBSTERS_FILE, lobsters)
-    logger.debug("storage: 保存了 %d 只龙虾", len(lobsters))
+    logger.debug("storage_legacy: 保存了 %d 只龙虾", len(lobsters))
 
 
 def load_lobsters() -> Dict[str, Dict[str, Any]]:
     data = _read_json(LOBSTERS_FILE, {})
-    logger.info("storage: 加载 %d 只历史龙虾", len(data))
+    logger.info("storage_legacy: 加载 %d 只历史龙虾", len(data))
     return data
 
 
@@ -61,12 +64,12 @@ def load_lobsters() -> Dict[str, Dict[str, Any]]:
 async def save_bots(bots: Dict[str, Dict[str, Any]]) -> None:
     async with _lock:
         _atomic_write(BOTS_FILE, bots)
-    logger.debug("storage: 保存了 %d 个 bot 凭证", len(bots))
+    logger.debug("storage_legacy: 保存了 %d 个 bot 凭证", len(bots))
 
 
 def load_bots() -> Dict[str, Dict[str, Any]]:
     data = _read_json(BOTS_FILE, {})
-    logger.info("storage: 加载 %d 个历史 bot 凭证", len(data))
+    logger.info("storage_legacy: 加载 %d 个历史 bot 凭证", len(data))
     return data
 
 
@@ -75,7 +78,6 @@ def load_bots() -> Dict[str, Dict[str, Any]]:
 
 async def save_feed(feed: List[Dict[str, Any]]) -> None:
     async with _lock:
-        # 只保留最近 200 条，太多没必要
         _atomic_write(FEED_FILE, feed[-200:])
 
 
